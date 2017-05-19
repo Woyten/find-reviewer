@@ -3,36 +3,30 @@ module Main exposing (..)
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (..)
-import Json.Decode as Decode
-import Dict
+import Response
+import Post
+import Request
 
 
 main =
     Html.program { init = init, update = update, subscriptions = (always Sub.none), view = view }
 
 
+type UserInput
+    = Confirm
+    | Deny
+    | HaveTimeForReview
+    | NeedReviewer
+    | ReviewerInputUpdate String
+
+
 type Msg
-    = Input String
+    = UserInput UserInput
+    | HttpResponse Response.Status
 
 
-type Status
-    = Empty
-    | Accepted
-    | AlreadyRegistered
-    | NoReviewOpen
-    | NeedsReviewer String Int
-    | ReviewNotFound
-    | Error String String
-
-
-requestsWithoutParams =
-    [ Accepted, AlreadyRegistered, NoReviewOpen, ReviewNotFound ]
-
-
-dict =
-    requestsWithoutParams
-        |> List.map (\x -> ( toString x, x ))
-        |> Dict.fromList
+type alias Model =
+    { status : Response.Status, user : String, reviewId : Int }
 
 
 
@@ -40,109 +34,78 @@ dict =
 
 
 init =
-    ( Empty, Cmd.none )
+    ( { status = Response.Empty, user = "", id = 0 }, Cmd.none )
 
 
 
 -- UPDATE
 
 
-update (Input input) =
-    let
-        newModel =
-            if String.isEmpty input then
-                Empty
-            else
-                evaluateStatus input
-    in
-        always ( newModel, Cmd.none )
+update msg oldModel =
+    case msg of
+        UserInput userinput ->
+            handleUserInput userinput oldModel
+
+        HttpResponse status ->
+            { oldModel | status = status } ! []
 
 
-evaluateStatus input =
-    case (parseResponse input) of
-        Ok status ->
-            status
+handleUserInput userinput oldModel =
+    case userinput of
+        Confirm ->
+            oldModel ! [ Post.sendRequest handleResult (Request.WillReview oldModel.id) ]
 
-        Err err ->
-            Error input err
+        Deny ->
+            oldModel ! [ Post.sendRequest handleResult (Request.WontReview oldModel.id) ]
 
+        HaveTimeForReview ->
+            oldModel ! [ Post.sendRequest handleResult (Request.HaveTimeForReview oldModel.user) ]
 
-parseResponse =
-    let
-        decoder =
-            Decode.oneOf [ stringDecoder, objectDecoder ]
-    in
-        Decode.decodeString decoder
+        NeedReviewer ->
+            oldModel ! [ Post.sendRequest handleResult (Request.NeedReviewer oldModel.user) ]
 
-
-stringDecoder =
-    Decode.string
-        |> Decode.map resolveStatus
-        |> Decode.andThen unwrap
-
-
-resolveStatus status =
-    dict |> Dict.get status
-
-
-unwrap value =
-    value
-        |> Maybe.map Decode.succeed
-        |> Maybe.withDefault (Decode.fail <| "Expecting one of " ++ (toString requestsWithoutParams))
-
-
-objectDecoder =
-    Decode.field "NeedsReviewer" needsReviewerDecoder
-
-
-needsReviewerDecoder =
-    Decode.map2 NeedsReviewer
-        (Decode.field "coder" Decode.string)
-        (Decode.field "review_id" Decode.int)
+        ReviewerInputUpdate userinput ->
+            { oldModel | user = userinput } ! []
 
 
 
 -- VIEW
 
 
-view status =
-    let
-        temporaryControls =
-            [ input [ onInput Input ] [], hr [] [] ]
-    in
-        div [] (temporaryControls ++ createDynamicControls status)
+view model =
+    div [] (createDynamicControls model.status)
 
 
 createDynamicControls status =
     case status of
-        Empty ->
+        Response.Empty ->
             defaultControls
 
-        Accepted ->
+        Response.Accepted ->
             defaultControls ++ label "green" "Request accepted"
 
-        AlreadyRegistered ->
+        Response.AlreadyRegistered ->
             defaultControls ++ label "blue" "Coder already registered"
 
-        NoReviewOpen ->
+        Response.NoReviewOpen ->
             defaultControls ++ label "blue" "No review open"
 
-        NeedsReviewer coder review_id ->
+        Response.NeedsReviewer coder review_id ->
             askForConfirmation coder review_id
 
-        ReviewNotFound ->
+        Response.ReviewNotFound ->
             defaultControls ++ label "red" "The review could not be accepted.\nYou probably ran into a timeout."
 
-        Error input err ->
+        Response.Error input err ->
             defaultControls ++ label "red" "Invalid server response:" ++ label "black" input ++ label "red" err
 
 
 defaultControls =
     wrapDivs
         [ text "Name:"
-        , input [] []
-        , button [] [ text "I need a review" ]
-        , button [] [ text "I have time for a review" ]
+        , input [ onInput (UserInput << ReviewerInputUpdate) ] []
+        , button [ onClick (UserInput NeedReviewer) ] [ text "I need a review" ]
+        , button [ onClick (UserInput HaveTimeForReview) ] [ text "I have time for a review" ]
         ]
 
 
@@ -150,8 +113,8 @@ askForConfirmation coder review_id =
     wrapDivs
         [ b [] [ text coder ]
         , text " needs a review first. Will you do the review?"
-        , button [] [ text "Yes" ]
-        , button [] [ text "No" ]
+        , button [ onClick (UserInput Confirm) ] [ text "Yes" ]
+        , button [ onClick (UserInput Deny) ] [ text "No" ]
         ]
 
 
@@ -164,3 +127,12 @@ label col multilineString =
         |> String.lines
         |> List.map text
         |> List.map (\x -> div [ style [ ( "color", col ) ] ] [ x ])
+
+
+handleResult result =
+    case result of
+        Ok status ->
+            HttpResponse status
+
+        Err err ->
+            HttpResponse (Response.Error "Request failed" (toString err))

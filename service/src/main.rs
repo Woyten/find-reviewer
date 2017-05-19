@@ -5,6 +5,7 @@ extern crate rand;
 extern crate serde_derive;
 extern crate serde_json;
 extern crate staticfile;
+extern crate router;
 
 use iron::method::Method;
 use iron::prelude::*;
@@ -16,6 +17,7 @@ use std::collections::HashSet;
 use std::io::Read;
 use std::path::Path;
 use std::sync::Mutex;
+use router::Router;
 
 #[derive(Debug, Deserialize, Eq, PartialEq)]
 enum FindReviewerRequest {
@@ -43,14 +45,16 @@ fn main() {
     mount.mount("/find-reviewer", move |request: &mut Request| find_reviewer(request, &application)).mount("/", Static::new(Path::new("www")));
 
     // TODO: Handle timeouts middleware, log state middleware
-
-    Iron::new(mount).http("localhost:3000").unwrap();
+    
+    let mut router = Router::new();
+    router.post("/", mount, "foo");
+    Iron::new(router).http("localhost:3000").unwrap();
 }
 
 fn find_reviewer(request: &mut Request, application: &Application) -> IronResult<Response> {
     match request.method {
         Method::Post => dispatch(request, application),
-        _ => Ok(Response::with((Status::BadRequest, "Must be a POST request"))),
+        _ => Ok(Response::with((Status::Ok, "Must be a POST request"))),
     }
 
 }
