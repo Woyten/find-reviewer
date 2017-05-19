@@ -11,13 +11,13 @@ use iron::method::Method;
 use iron::prelude::*;
 use iron::status::Status;
 use mount::Mount;
+use rand::Rng;
 use staticfile::Static;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::io::Read;
 use std::path::Path;
 use std::sync::Mutex;
-use router::Router;
 
 #[derive(Debug, Deserialize, Eq, PartialEq)]
 enum FindReviewerRequest {
@@ -42,13 +42,14 @@ fn main() {
     let application = Mutex::new(ApplicationState::new());
 
     let mut mount = Mount::new();
-    mount.mount("/find-reviewer", move |request: &mut Request| find_reviewer(request, &application)).mount("/", Static::new(Path::new("www")));
+    mount
+        .mount("/find-reviewer", move |request: &mut Request| find_reviewer(request, &application))
+        .mount("/", Static::new(Path::new("www")));
 
+    mount.mount("/find-reviewer-gui", Static::new(Path::new("index.html")));
     // TODO: Handle timeouts middleware, log state middleware
-    
-    let mut router = Router::new();
-    router.post("/", mount, "foo");
-    Iron::new(router).http("localhost:3000").unwrap();
+
+    Iron::new(mount).http("localhost:3000").unwrap();
 }
 
 fn find_reviewer(request: &mut Request, application: &Application) -> IronResult<Response> {
@@ -90,7 +91,7 @@ struct ApplicationState<G> {
 #[derive(Clone)]
 struct Review {
     pub coder: String,
-    pub enqueued_coder: Option<String>, 
+    pub enqueued_coder: Option<String>,
     // start_time
 }
 
@@ -108,11 +109,7 @@ impl<G: IdGenerator> ApplicationState<G> {
         if self.is_already_registered(&incoming_coder) {
             FindReviewerResponse::AlreadyRegistered
         } else if self.waiting_coders.len() >= 5 {
-            let random_waiting_coder = self.waiting_coders
-                .iter()
-                .next()
-                .unwrap()
-                .clone();
+            let random_waiting_coder = self.waiting_coders.iter().next().unwrap().clone();
             self.start_review(random_waiting_coder, Some(incoming_coder))
         } else {
             self.insert_coder(Some(incoming_coder));
@@ -121,7 +118,10 @@ impl<G: IdGenerator> ApplicationState<G> {
     }
 
     fn is_already_registered(&self, coder: &String) -> bool {
-        self.waiting_coders.contains(coder) || self.open_reviews.values().any(|review| &review.coder == coder || review.enqueued_coder.as_ref() == Some(coder))
+        self.waiting_coders.contains(coder) ||
+        self.open_reviews
+            .values()
+            .any(|review| &review.coder == coder || review.enqueued_coder.as_ref() == Some(coder))
     }
 
     fn have_time_for_review(&mut self, incoming_reviewer: &String) -> FindReviewerResponse {
@@ -209,7 +209,7 @@ struct RandomIdGenerator;
 
 impl IdGenerator for RandomIdGenerator {
     fn generate_id(&mut self) -> usize {
-        rand::random()
+        rand::thread_rng().gen_range(0, 16383)
     }
 
     fn new() -> Self {
