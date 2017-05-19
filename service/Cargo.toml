@@ -1,0 +1,13 @@
+[package]
+name = "find-reviewers"
+version = "0.1.0"
+authors = ["Woyten <woyten.tielesch@online.de>"]
+
+[dependencies]
+iron = "*"
+mount = "*"
+serde = "*"
+serde_derive = "*"
+serde_json = "*"
+staticfile = "*"
+rand = "*"
