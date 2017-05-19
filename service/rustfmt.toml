@@ -1,0 +1,5 @@
+max_width = 160                     # absolute
+fn_call_width = 120                 # relative
+single_line_if_else_max_width = 120 # relative
+reorder_imports = true
+reorder_imported_names = true
