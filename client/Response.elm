@@ -8,7 +8,7 @@ type Status
     = Empty
     | Accepted
     | AlreadyRegistered
-    | NoReviewOpen
+    | NoHelpNeeded
     | NeedsReviewer String Int
     | ReviewNotFound
     | Error String String
@@ -19,7 +19,7 @@ responseDecoder =
 
 
 requestsWithoutParams =
-    [ Accepted, AlreadyRegistered, NoReviewOpen, ReviewNotFound ]
+    [ Accepted, AlreadyRegistered, NoHelpNeeded, ReviewNotFound ]
 
 
 dict =
@@ -45,7 +45,7 @@ unwrap value =
 
 
 objectDecoder =
-    Decode.field "NeedsReviewer" needsReviewerDecoder
+    Decode.field "NeedsReview" needsReviewerDecoder
 
 
 needsReviewerDecoder =

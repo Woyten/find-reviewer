@@ -47,7 +47,17 @@ update msg oldModel =
             handleUserInput userinput oldModel
 
         HttpResponse status ->
-            { oldModel | status = status } ! []
+            { oldModel
+                | status = status
+                , id =
+                    case status of
+                        Response.NeedsReviewer coder id ->
+                            id
+
+                        _ ->
+                            oldModel.id
+            }
+                ! []
 
 
 handleUserInput userinput oldModel =
@@ -87,7 +97,7 @@ createDynamicControls status =
         Response.AlreadyRegistered ->
             defaultControls ++ label "blue" "Coder already registered"
 
-        Response.NoReviewOpen ->
+        Response.NoHelpNeeded ->
             defaultControls ++ label "blue" "No review open"
 
         Response.NeedsReviewer coder review_id ->
