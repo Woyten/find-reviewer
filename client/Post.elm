@@ -1,4 +1,4 @@
-module Post exposing (..)
+module Post exposing (sendRequest)
 
 import Http
 import Request

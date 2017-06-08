@@ -1,17 +1,15 @@
-module Response exposing (..)
+module Response exposing (Response(..), responseDecoder)
 
 import Json.Decode as Decode
 import Dict
 
 
-type Status
-    = Empty
-    | Accepted
+type Response
+    = Accepted
     | AlreadyRegistered
-    | NoHelpNeeded
+    | NoReviewerNeeded
     | NeedsReviewer String Int
     | ReviewNotFound
-    | Error String String
 
 
 responseDecoder =
@@ -19,7 +17,7 @@ responseDecoder =
 
 
 requestsWithoutParams =
-    [ Accepted, AlreadyRegistered, NoHelpNeeded, ReviewNotFound ]
+    [ Accepted, AlreadyRegistered, NoReviewerNeeded, ReviewNotFound ]
 
 
 dict =
@@ -45,7 +43,7 @@ unwrap value =
 
 
 objectDecoder =
-    Decode.field "NeedsReview" needsReviewerDecoder
+    Decode.field "NeedsReviewer" needsReviewerDecoder
 
 
 needsReviewerDecoder =

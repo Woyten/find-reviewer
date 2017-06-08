@@ -30,9 +30,9 @@ enum FindReviewerRequest {
 #[derive(Debug, Eq, PartialEq, Serialize)]
 enum FindReviewerResponse {
     Accepted,
-    NoHelpNeeded,
+    NoReviewerNeeded,
     AlreadyRegistered,
-    NeedsReview { coder: String, review_id: usize },
+    NeedsReviewer { coder: String, review_id: usize },
     ReviewNotFound,
 }
 
@@ -132,7 +132,7 @@ impl<G: IdGenerator> ApplicationState<G> {
             .cloned();
         match random_coder_except_incoming_reviewer {
             Some(coder) => self.start_review(coder, None),
-            None => FindReviewerResponse::NoHelpNeeded,
+            None => FindReviewerResponse::NoReviewerNeeded,
         }
     }
 
@@ -144,7 +144,7 @@ impl<G: IdGenerator> ApplicationState<G> {
         self.remove_coder(&coder);
         let review_id = self.insert_review(review);
 
-        FindReviewerResponse::NeedsReview { coder, review_id }
+        FindReviewerResponse::NeedsReviewer { coder, review_id }
     }
 
     fn generate_id(&mut self) -> usize {
@@ -284,7 +284,7 @@ mod test {
 
         let resp = app.need_reviewer("coder6".to_owned());
         assert_eq!(resp,
-                   FindReviewerResponse::NeedsReview {
+                   FindReviewerResponse::NeedsReviewer {
                        coder: "coder3".to_owned(),
                        review_id: 1,
                    });
