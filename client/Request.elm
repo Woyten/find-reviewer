@@ -1,13 +1,13 @@
-module Request exposing (..)
+module Request exposing (Request(..), encodeRequest)
 
 import Json.Encode as Encode
 
 
-type ServerMessage
+type Request
     = NeedReviewer String
+    | HaveTimeForReview String
     | WontReview Int
     | WillReview Int
-    | HaveTimeForReview String
 
 
 encodeRequest msg =
@@ -20,11 +20,11 @@ encodeRequest msg =
                   )
                 ]
 
-        WontReview id ->
+        HaveTimeForReview reviewer ->
             Encode.object
-                [ ( "WontReview"
+                [ ( "HaveTimeForReview"
                   , Encode.object
-                        [ ( "review_id", Encode.int id ) ]
+                        [ ( "reviewer", Encode.string reviewer ) ]
                   )
                 ]
 
@@ -36,10 +36,10 @@ encodeRequest msg =
                   )
                 ]
 
-        HaveTimeForReview reviewer ->
+        WontReview id ->
             Encode.object
-                [ ( "HaveTimeForReview"
+                [ ( "WontReview"
                   , Encode.object
-                        [ ( "reviewer", Encode.string reviewer ) ]
+                        [ ( "review_id", Encode.int id ) ]
                   )
                 ]

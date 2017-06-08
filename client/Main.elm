@@ -3,6 +3,7 @@ module Main exposing (..)
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (..)
+import Http
 import Response
 import Post
 import Request
@@ -13,20 +14,26 @@ main =
 
 
 type UserInput
-    = Confirm
-    | Deny
-    | HaveTimeForReview
+    = ReviewerInputUpdate String
     | NeedReviewer
-    | ReviewerInputUpdate String
+    | HaveTimeForReview
+    | WillReview Int
+    | WontReview Int
 
 
 type Msg
     = UserInput UserInput
-    | HttpResponse Response.Status
+    | HttpResult (Result Http.Error Response.Response)
+
+
+type ViewStatus
+    = Initial
+    | HttpSuccess Response.Response
+    | HttpFailure Http.Error
 
 
 type alias Model =
-    { status : Response.Status, user : String, reviewId : Int }
+    { status : ViewStatus, user : String }
 
 
 
@@ -34,48 +41,41 @@ type alias Model =
 
 
 init =
-    ( { status = Response.Empty, user = "", id = 0 }, Cmd.none )
+    ( { status = Initial, user = "" }, Cmd.none )
 
 
 
 -- UPDATE
 
 
-update msg oldModel =
+update msg model =
     case msg of
-        UserInput userinput ->
-            handleUserInput userinput oldModel
+        UserInput userInput ->
+            handleUserInput userInput model
 
-        HttpResponse status ->
-            { oldModel
-                | status = status
-                , id =
-                    case status of
-                        Response.NeedsReviewer coder id ->
-                            id
+        HttpResult (Ok status) ->
+            { model | status = HttpSuccess status } ! []
 
-                        _ ->
-                            oldModel.id
-            }
-                ! []
+        HttpResult (Err err) ->
+            { model | status = HttpFailure err } ! []
 
 
-handleUserInput userinput oldModel =
-    case userinput of
-        Confirm ->
-            oldModel ! [ Post.sendRequest handleResult (Request.WillReview oldModel.id) ]
-
-        Deny ->
-            oldModel ! [ Post.sendRequest handleResult (Request.WontReview oldModel.id) ]
-
-        HaveTimeForReview ->
-            oldModel ! [ Post.sendRequest handleResult (Request.HaveTimeForReview oldModel.user) ]
+handleUserInput userInput model =
+    case userInput of
+        ReviewerInputUpdate userInput ->
+            { model | user = userInput } ! []
 
         NeedReviewer ->
-            oldModel ! [ Post.sendRequest handleResult (Request.NeedReviewer oldModel.user) ]
+            model ! [ Post.sendRequest HttpResult (Request.NeedReviewer model.user) ]
 
-        ReviewerInputUpdate userinput ->
-            { oldModel | user = userinput } ! []
+        HaveTimeForReview ->
+            model ! [ Post.sendRequest HttpResult (Request.HaveTimeForReview model.user) ]
+
+        WillReview review_id ->
+            model ! [ Post.sendRequest HttpResult (Request.WillReview review_id) ]
+
+        WontReview review_id ->
+            model ! [ Post.sendRequest HttpResult (Request.WontReview review_id) ]
 
 
 
@@ -83,37 +83,44 @@ handleUserInput userinput oldModel =
 
 
 view model =
-    div [] (createDynamicControls model.status)
+    div [] (createDynamicControls model)
 
 
-createDynamicControls status =
-    case status of
-        Response.Empty ->
-            defaultControls
+createDynamicControls model =
+    case model.status of
+        Initial ->
+            defaultControls model
 
-        Response.Accepted ->
-            defaultControls ++ label "green" "Request accepted"
+        HttpSuccess Response.Accepted ->
+            defaultControls model ++ label "green" "Request accepted"
 
-        Response.AlreadyRegistered ->
-            defaultControls ++ label "blue" "Coder already registered"
+        HttpSuccess Response.AlreadyRegistered ->
+            defaultControls model ++ label "blue" "Coder already registered"
 
-        Response.NoHelpNeeded ->
-            defaultControls ++ label "blue" "No review open"
+        HttpSuccess Response.NoReviewerNeeded ->
+            defaultControls model ++ label "blue" "No review open"
 
-        Response.NeedsReviewer coder review_id ->
+        HttpSuccess (Response.NeedsReviewer coder review_id) ->
             askForConfirmation coder review_id
 
-        Response.ReviewNotFound ->
-            defaultControls ++ label "red" "The review could not be accepted.\nYou probably ran into a timeout."
+        HttpSuccess Response.ReviewNotFound ->
+            defaultControls model ++ label "red" "The review could not be accepted.\nYou probably ran into a timeout."
 
-        Response.Error input err ->
-            defaultControls ++ label "red" "Invalid server response:" ++ label "black" input ++ label "red" err
+        HttpFailure (Http.BadPayload errMsg _) ->
+            defaultControls model
+                ++ label "red" "Invalid server payload:"
+                ++ label "black" errMsg
+
+        HttpFailure otherError ->
+            defaultControls model
+                ++ label "red" "HTTP error:"
+                ++ label "black" (toString otherError)
 
 
-defaultControls =
+defaultControls model =
     wrapDivs
         [ text "Name:"
-        , input [ onInput (UserInput << ReviewerInputUpdate) ] []
+        , input [ value model.user, onInput (UserInput << ReviewerInputUpdate) ] []
         , button [ onClick (UserInput NeedReviewer) ] [ text "I need a review" ]
         , button [ onClick (UserInput HaveTimeForReview) ] [ text "I have time for a review" ]
         ]
@@ -123,8 +130,8 @@ askForConfirmation coder review_id =
     wrapDivs
         [ b [] [ text coder ]
         , text " needs a review first. Will you do the review?"
-        , button [ onClick (UserInput Confirm) ] [ text "Yes" ]
-        , button [ onClick (UserInput Deny) ] [ text "No" ]
+        , button [ onClick (UserInput <| WillReview review_id) ] [ text "Yes" ]
+        , button [ onClick (UserInput <| WontReview review_id) ] [ text "No" ]
         ]
 
 
@@ -132,17 +139,8 @@ wrapDivs =
     List.map <| \x -> div [] [ x ]
 
 
-label col multilineString =
+label color multilineString =
     multilineString
         |> String.lines
         |> List.map text
-        |> List.map (\x -> div [ style [ ( "color", col ) ] ] [ x ])
-
-
-handleResult result =
-    case result of
-        Ok status ->
-            HttpResponse status
-
-        Err err ->
-            HttpResponse (Response.Error "Request failed" (toString err))
+        |> List.map (\x -> div [ style [ ( "color", color ) ] ] [ x ])
