@@ -32,11 +32,11 @@ enum FindReviewerRequest {
 
 #[derive(Debug, Eq, PartialEq, Serialize)]
 enum FindReviewerResponse {
-    Accepted,
-    NoReviewerNeeded,
-    AlreadyRegistered,
+    Accepted {},
+    NoReviewerNeeded {},
+    AlreadyRegistered {},
     NeedsReviewer { coder: String, review_id: usize },
-    ReviewNotFound,
+    ReviewNotFound {},
 }
 
 type SharedApplication = Arc<Mutex<Application<RandomIdGenerator>>>;
@@ -126,13 +126,13 @@ impl<G: IdGenerator> Application<G> {
 
     fn need_reviewer(&mut self, incoming_coder: String) -> FindReviewerResponse {
         if self.is_already_registered(&incoming_coder) {
-            FindReviewerResponse::AlreadyRegistered
+            FindReviewerResponse::AlreadyRegistered {}
         } else if self.waiting_coders.len() >= self.configuration.wip_limit {
             let random_waiting_coder = self.waiting_coders.iter().next().unwrap().clone();
             self.start_review(random_waiting_coder, Some(incoming_coder))
         } else {
             self.waiting_coders.insert(incoming_coder);
-            FindReviewerResponse::Accepted
+            FindReviewerResponse::Accepted {}
         }
     }
 
@@ -151,7 +151,7 @@ impl<G: IdGenerator> Application<G> {
             .cloned();
         match random_coder_except_incoming_reviewer {
             Some(coder) => self.start_review(coder, None),
-            None => FindReviewerResponse::NoReviewerNeeded,
+            None => FindReviewerResponse::NoReviewerNeeded {},
         }
     }
 
@@ -182,9 +182,9 @@ impl<G: IdGenerator> Application<G> {
                 review
                     .enqueued_coder
                     .map(|coder| self.waiting_coders.insert(coder));
-                FindReviewerResponse::Accepted
+                FindReviewerResponse::Accepted {}
             }
-            None => FindReviewerResponse::ReviewNotFound,
+            None => FindReviewerResponse::ReviewNotFound {},
         }
     }
 
@@ -192,9 +192,9 @@ impl<G: IdGenerator> Application<G> {
         match self.active_reviews.remove(&review_id) {
             Some(review) => {
                 self.waiting_coders.insert(review.coder);
-                FindReviewerResponse::Accepted
+                FindReviewerResponse::Accepted {}
             }
-            None => FindReviewerResponse::ReviewNotFound,
+            None => FindReviewerResponse::ReviewNotFound {},
         }
     }
 
@@ -263,22 +263,22 @@ mod test {
         let mut app = create_application();
 
         let resp = app.need_reviewer("coder1".to_owned());
-        assert_eq!(resp, FindReviewerResponse::Accepted);
+        assert_eq!(resp, FindReviewerResponse::Accepted {});
 
         let resp = app.need_reviewer("coder1".to_owned());
-        assert_eq!(resp, FindReviewerResponse::AlreadyRegistered);
+        assert_eq!(resp, FindReviewerResponse::AlreadyRegistered {});
 
         let resp = app.need_reviewer("coder2".to_owned());
-        assert_eq!(resp, FindReviewerResponse::Accepted);
+        assert_eq!(resp, FindReviewerResponse::Accepted {});
 
         let resp = app.need_reviewer("coder3".to_owned());
-        assert_eq!(resp, FindReviewerResponse::Accepted);
+        assert_eq!(resp, FindReviewerResponse::Accepted {});
 
         let resp = app.need_reviewer("coder2".to_owned());
-        assert_eq!(resp, FindReviewerResponse::AlreadyRegistered);
+        assert_eq!(resp, FindReviewerResponse::AlreadyRegistered {});
 
         let resp = app.need_reviewer("coder3".to_owned());
-        assert_eq!(resp, FindReviewerResponse::AlreadyRegistered);
+        assert_eq!(resp, FindReviewerResponse::AlreadyRegistered {});
     }
 
     use rand::SeedableRng;
@@ -290,19 +290,19 @@ mod test {
         let mut app = create_application();
 
         let resp = app.need_reviewer("coder1".to_owned());
-        assert_eq!(resp, FindReviewerResponse::Accepted);
+        assert_eq!(resp, FindReviewerResponse::Accepted {});
 
         let resp = app.need_reviewer("coder2".to_owned());
-        assert_eq!(resp, FindReviewerResponse::Accepted);
+        assert_eq!(resp, FindReviewerResponse::Accepted {});
 
         let resp = app.need_reviewer("coder3".to_owned());
-        assert_eq!(resp, FindReviewerResponse::Accepted);
+        assert_eq!(resp, FindReviewerResponse::Accepted {});
 
         let resp = app.need_reviewer("coder4".to_owned());
-        assert_eq!(resp, FindReviewerResponse::Accepted);
+        assert_eq!(resp, FindReviewerResponse::Accepted {});
 
         let resp = app.need_reviewer("coder5".to_owned());
-        assert_eq!(resp, FindReviewerResponse::Accepted);
+        assert_eq!(resp, FindReviewerResponse::Accepted {});
 
         let resp = app.need_reviewer("coder6".to_owned());
         assert_eq!(

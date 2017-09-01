@@ -1,7 +1,6 @@
-module Response exposing (Response(..), responseDecoder)
+module Response exposing (Response(..), decode)
 
 import Json.Decode as Decode
-import Dict
 
 
 type Response
@@ -12,41 +11,17 @@ type Response
     | ReviewNotFound
 
 
-responseDecoder =
-    Decode.oneOf [ stringDecoder, objectDecoder ]
+decode =
+    Decode.oneOf
+        [ Decode.field "Accepted" (Decode.succeed Accepted)
+        , Decode.field "AlreadyRegistered" (Decode.succeed AlreadyRegistered)
+        , Decode.field "NoReviewerNeeded" (Decode.succeed NoReviewerNeeded)
+        , Decode.field "NeedsReviewer" decodeNeedsReviewer
+        , Decode.field "ReviewNotFound" (Decode.succeed ReviewNotFound)
+        ]
 
 
-requestsWithoutParams =
-    [ Accepted, AlreadyRegistered, NoReviewerNeeded, ReviewNotFound ]
-
-
-dict =
-    requestsWithoutParams
-        |> List.map (\x -> ( toString x, x ))
-        |> Dict.fromList
-
-
-stringDecoder =
-    Decode.string
-        |> Decode.map resolveStatus
-        |> Decode.andThen unwrap
-
-
-resolveStatus status =
-    dict |> Dict.get status
-
-
-unwrap value =
-    value
-        |> Maybe.map Decode.succeed
-        |> Maybe.withDefault (Decode.fail <| "Expecting one of " ++ (toString requestsWithoutParams))
-
-
-objectDecoder =
-    Decode.field "NeedsReviewer" needsReviewerDecoder
-
-
-needsReviewerDecoder =
+decodeNeedsReviewer =
     Decode.map2 NeedsReviewer
         (Decode.field "coder" Decode.string)
         (Decode.field "review_id" Decode.int)

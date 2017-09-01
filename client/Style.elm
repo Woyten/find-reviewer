@@ -12,7 +12,7 @@ loginDiv =
 
 
 text color =
-    Attributes.style <| [ ( "color", color ) ] ++ padding
+    Attributes.style <| [ ( "color", color ), ( "font-weight", "bold" ) ] ++ padding
 
 
 coder =
@@ -28,7 +28,7 @@ buttonBox =
 
 
 button =
-    Attributes.style padding
+    Attributes.style <| [ ( "font-weight", "bold" ) ] ++ padding
 
 
 padding =

@@ -90,44 +90,38 @@ view model =
 createDynamicControls model =
     case model.status of
         Initial ->
-            defaultControls model ++ [ multiline "" " " ]
+            defaultControls model "" " "
 
         HttpSuccess Response.Accepted ->
-            defaultControls model
-                ++ [ multiline "green" "Request accepted" ]
+            defaultControls model "darkgreen" "Request accepted"
 
         HttpSuccess Response.AlreadyRegistered ->
-            defaultControls model
-                ++ [ multiline "blue" "Coder already registered" ]
+            defaultControls model "mediumblue" "Coder already registered"
 
         HttpSuccess Response.NoReviewerNeeded ->
-            defaultControls model
-                ++ [ multiline "blue" "No review open" ]
+            defaultControls model "mediumblue" "No review open"
 
         HttpSuccess (Response.NeedsReviewer coder review_id) ->
             askForConfirmation coder review_id
 
         HttpSuccess Response.ReviewNotFound ->
-            defaultControls model
-                ++ [ multiline "red" "Review not found. You probably ran into a timeout." ]
+            defaultControls model "darkred" "Review not found. You probably ran into a timeout."
 
-        HttpFailure (Http.BadPayload errMsg _) ->
-            defaultControls model
-                ++ [ multiline "red" "Invalid server payload:"
-                   , multiline "black" errMsg
-                   ]
+        HttpFailure (Http.BadPayload errorMessage _) ->
+            defaultControls model "darkred" ("Invalid HTTP payload / " ++ errorMessage)
 
         HttpFailure otherError ->
-            defaultControls model
+            defaultControls model "darkred" (toString otherError)
 
 
-defaultControls model =
+defaultControls model color message =
     [ label [ Style.text "black", Attributes.for "text_input" ] [ text "Name:" ]
     , input [ Style.textField, Attributes.id "text_input", Attributes.value model.user, Events.onInput (UserInput << ReviewerInputUpdate) ] []
     , div [ Style.buttonBox ]
         [ button [ Style.button, Events.onClick (UserInput NeedReviewer) ] [ text "I need a reviewer" ]
         , button [ Style.button, Events.onClick (UserInput HaveTimeForReview) ] [ text "I have time for a review" ]
         ]
+    , multiline color message
     ]
 
 
