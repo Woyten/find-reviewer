@@ -12,5 +12,5 @@ sendRequest handleResult request =
 post request =
     Http.post
         "http://localhost:3000/find-reviewer/"
-        (Http.jsonBody (Request.encodeRequest request))
-        Response.responseDecoder
+        (Http.jsonBody (Request.encode request))
+        Response.decode

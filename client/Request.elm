@@ -1,4 +1,4 @@
-module Request exposing (Request(..), encodeRequest)
+module Request exposing (Request(..), encode)
 
 import Json.Encode as Encode
 
@@ -10,7 +10,7 @@ type Request
     | WillReview Int
 
 
-encodeRequest msg =
+encode msg =
     case msg of
         NeedReviewer coder ->
             Encode.object
