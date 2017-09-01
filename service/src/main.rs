@@ -5,7 +5,6 @@ extern crate rand;
 extern crate serde_derive;
 extern crate serde_json;
 extern crate staticfile;
-extern crate router;
 
 use iron::method::Method;
 use iron::prelude::*;
@@ -17,7 +16,11 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::io::Read;
 use std::path::Path;
+use std::sync::Arc;
 use std::sync::Mutex;
+use std::thread;
+use std::time::Duration;
+use std::time::Instant;
 
 #[derive(Debug, Deserialize, Eq, PartialEq)]
 enum FindReviewerRequest {
@@ -36,71 +39,87 @@ enum FindReviewerResponse {
     ReviewNotFound,
 }
 
-type Application = Mutex<ApplicationState<RandomIdGenerator>>;
+type SharedApplication = Arc<Mutex<Application<RandomIdGenerator>>>;
 
 fn main() {
-    let application = Mutex::new(ApplicationState::new());
+    let application = SharedApplication::new(Mutex::new(Application::new(ApplicationConfiguration::default())));
 
     let mut mount = Mount::new();
     mount
-        .mount("/find-reviewer", move |request: &mut Request| find_reviewer(request, &application))
+        .mount("/find-reviewer", {
+            let application = application.clone();
+            move |request: &mut Request| Ok(dispatch_request(request, &application))
+        })
         .mount("/", Static::new(Path::new("www")));
 
-    mount.mount("/find-reviewer-gui", Static::new(Path::new("index.html")));
-    // TODO: Handle timeouts middleware, log state middleware
+    thread::spawn(move || loop {
+        thread::sleep(Duration::from_secs(1));
+        application.lock().unwrap().process_timeouts();
+    });
 
     Iron::new(mount).http("localhost:3000").unwrap();
 }
 
-fn find_reviewer(request: &mut Request, application: &Application) -> IronResult<Response> {
-    match request.method {
-        Method::Post => dispatch(request, application),
-        _ => Ok(Response::with((Status::Ok, "Must be a POST request"))),
+fn dispatch_request(request: &mut Request, application: &SharedApplication) -> Response {
+    if request.method != Method::Post {
+        return Response::with((Status::BadRequest, "Must be a POST request"));
     }
 
-}
-
-fn dispatch(request: &mut Request, application: &Application) -> IronResult<Response> {
-    let parsed: FindReviewerRequest = match serde_json::from_reader(request.body.by_ref()) {
+    let parsed = match serde_json::from_reader(request.body.by_ref()) {
+        Err(message) => return Response::with((Status::BadRequest, format!("JSON error: {}", message))),
         Ok(request) => request,
-        Err(message) => return Ok(Response::with((Status::BadRequest, format!("JSON error: {}", message)))),
-    }; // TODO: map_err
+    };
 
     let response = {
-        let mut state = application.lock().unwrap();
+        let mut application = application.lock().unwrap();
         match parsed {
-            FindReviewerRequest::NeedReviewer { coder } => state.need_reviewer(coder),
-            FindReviewerRequest::HaveTimeForReview { reviewer } => state.have_time_for_review(&reviewer),
-            FindReviewerRequest::WillReview { review_id } => state.will_review(review_id),
-            FindReviewerRequest::WontReview { review_id } => state.wont_review(review_id),
+            FindReviewerRequest::NeedReviewer { coder } => application.need_reviewer(coder),
+            FindReviewerRequest::HaveTimeForReview { reviewer } => application.have_time_for_review(&reviewer),
+            FindReviewerRequest::WillReview { review_id } => application.will_review(review_id),
+            FindReviewerRequest::WontReview { review_id } => application.wont_review(review_id),
         }
     };
 
-    Ok(Response::with((Status::Ok, serde_json::to_string_pretty(&response).unwrap())))
+    Response::with((Status::Ok, serde_json::to_string_pretty(&response).unwrap()))
 }
 
 use std::collections::hash_map::DefaultHasher;
 use std::hash::BuildHasherDefault;
 
-struct ApplicationState<G> {
+struct Application<G> {
+    configuration: ApplicationConfiguration,
     waiting_coders: HashSet<String, BuildHasherDefault<DefaultHasher>>,
-    open_reviews: HashMap<usize, Review>,
+    active_reviews: HashMap<usize, Review>,
     id_generator: G,
+}
+
+struct ApplicationConfiguration {
+    pub timeout: Duration,
+    pub wip_limit: usize,
+}
+
+impl Default for ApplicationConfiguration {
+    fn default() -> Self {
+        ApplicationConfiguration {
+            timeout: Duration::from_secs(30),
+            wip_limit: 5,
+        }
+    }
 }
 
 #[derive(Clone)]
 struct Review {
     pub coder: String,
     pub enqueued_coder: Option<String>,
-    // start_time
+    pub started: Instant,
 }
 
-
-impl<G: IdGenerator> ApplicationState<G> {
-    fn new() -> ApplicationState<G> {
-        ApplicationState {
+impl<G: IdGenerator> Application<G> {
+    fn new(configuration: ApplicationConfiguration) -> Application<G> {
+        Application {
+            configuration,
             waiting_coders: HashSet::default(),
-            open_reviews: HashMap::default(),
+            active_reviews: HashMap::default(),
             id_generator: G::new(),
         }
     }
@@ -108,20 +127,20 @@ impl<G: IdGenerator> ApplicationState<G> {
     fn need_reviewer(&mut self, incoming_coder: String) -> FindReviewerResponse {
         if self.is_already_registered(&incoming_coder) {
             FindReviewerResponse::AlreadyRegistered
-        } else if self.waiting_coders.len() >= 5 {
+        } else if self.waiting_coders.len() >= self.configuration.wip_limit {
             let random_waiting_coder = self.waiting_coders.iter().next().unwrap().clone();
             self.start_review(random_waiting_coder, Some(incoming_coder))
         } else {
-            self.insert_coder(Some(incoming_coder));
+            self.waiting_coders.insert(incoming_coder);
             FindReviewerResponse::Accepted
         }
     }
 
     fn is_already_registered(&self, coder: &String) -> bool {
         self.waiting_coders.contains(coder) ||
-        self.open_reviews
-            .values()
-            .any(|review| &review.coder == coder || review.enqueued_coder.as_ref() == Some(coder))
+            self.active_reviews
+                .values()
+                .any(|review| &review.coder == coder || review.enqueued_coder.as_ref() == Some(coder))
     }
 
     fn have_time_for_review(&mut self, incoming_reviewer: &String) -> FindReviewerResponse {
@@ -140,6 +159,7 @@ impl<G: IdGenerator> ApplicationState<G> {
         let review = Review {
             coder: coder.clone(),
             enqueued_coder,
+            started: Instant::now(),
         };
         self.remove_coder(&coder);
         let review_id = self.insert_review(review);
@@ -150,17 +170,18 @@ impl<G: IdGenerator> ApplicationState<G> {
     fn generate_id(&mut self) -> usize {
         loop {
             let id = self.id_generator.generate_id();
-            if !self.open_reviews.contains_key(&id) {
+            if !self.active_reviews.contains_key(&id) {
                 return id;
             }
         }
     }
 
     fn will_review(&mut self, review_id: usize) -> FindReviewerResponse {
-        match self.open_reviews.get(&review_id).cloned() { // FIXME: Superfluous clone
+        match self.active_reviews.remove(&review_id) {
             Some(review) => {
-                self.remove_review(review_id);
-                self.insert_coder(review.enqueued_coder);
+                review
+                    .enqueued_coder
+                    .map(|coder| self.waiting_coders.insert(coder));
                 FindReviewerResponse::Accepted
             }
             None => FindReviewerResponse::ReviewNotFound,
@@ -168,19 +189,12 @@ impl<G: IdGenerator> ApplicationState<G> {
     }
 
     fn wont_review(&mut self, review_id: usize) -> FindReviewerResponse {
-        match self.open_reviews.get(&review_id).cloned() { // FIXME: Superfluous clone
+        match self.active_reviews.remove(&review_id) {
             Some(review) => {
-                self.remove_review(review_id);
-                self.insert_coder(Some(review.coder));
+                self.waiting_coders.insert(review.coder);
                 FindReviewerResponse::Accepted
             }
             None => FindReviewerResponse::ReviewNotFound,
-        }
-    }
-
-    fn insert_coder(&mut self, coder: Option<String>) {
-        if let Some(coder) = coder {
-            self.waiting_coders.insert(coder.clone());
         }
     }
 
@@ -190,12 +204,20 @@ impl<G: IdGenerator> ApplicationState<G> {
 
     fn insert_review(&mut self, review: Review) -> usize {
         let id = self.generate_id();
-        self.open_reviews.insert(id, review);
+        self.active_reviews.insert(id, review);
         id
     }
 
-    fn remove_review(&mut self, issue_id: usize) {
-        self.open_reviews.remove(&issue_id);
+    fn process_timeouts(&mut self) {
+        let now = Instant::now();
+        let timed_out: Vec<_> = self.active_reviews
+            .iter()
+            .filter(|&(_, review)| (now - review.started) > self.configuration.timeout)
+            .map(|(&id, _)| id)
+            .collect();
+        for review_id in timed_out {
+            self.wont_review(review_id);
+        }
     }
 }
 
@@ -237,7 +259,7 @@ mod test {
     }
 
     #[test]
-    fn coders_can_only_be_added_once() {
+    fn add_coder_no_more_than_once() {
         let mut app = create_application();
 
         let resp = app.need_reviewer("coder1".to_owned());
@@ -262,7 +284,7 @@ mod test {
     use rand::SeedableRng;
 
     #[test]
-    fn wip_limit_is_respected() {
+    fn respect_wip_limit() {
         rand::weak_rng().reseed([1, 2, 3, 4]);
 
         let mut app = create_application();
@@ -283,16 +305,16 @@ mod test {
         assert_eq!(resp, FindReviewerResponse::Accepted);
 
         let resp = app.need_reviewer("coder6".to_owned());
-        assert_eq!(resp,
-                   FindReviewerResponse::NeedsReviewer {
-                       coder: "coder3".to_owned(),
-                       review_id: 1,
-                   });
+        assert_eq!(
+            resp,
+            FindReviewerResponse::NeedsReviewer {
+                coder: "coder3".to_owned(),
+                review_id: 1,
+            }
+        );
     }
 
-    fn create_application() -> ApplicationState<SequenceIdGenerator> {
-        ApplicationState::new()
+    fn create_application() -> Application<SequenceIdGenerator> {
+        Application::new(ApplicationConfiguration::default())
     }
-
-    impl ApplicationState<SequenceIdGenerator> {}
 }
