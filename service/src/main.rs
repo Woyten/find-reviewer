@@ -52,7 +52,7 @@ fn main() {
     mount
         .mount("/find-reviewer", {
             let application = application.clone();
-            move |request: &mut Request| Ok(dispatch_request(request, &application))
+            move |request: &mut Request| Ok(process_request(request, &application))
         })
         .mount("/", Static::new(Path::new("www")));
 
@@ -81,7 +81,7 @@ fn load_configuration() -> ApplicationConfiguration {
     config
 }
 
-fn dispatch_request(request: &mut Request, application: &SharedApplication) -> Response {
+fn process_request(request: &mut Request, application: &SharedApplication) -> Response {
     if request.method != Method::Post {
         return Response::with((Status::BadRequest, "Must be a POST request"));
     }
@@ -91,17 +91,18 @@ fn dispatch_request(request: &mut Request, application: &SharedApplication) -> R
         Ok(request) => request,
     };
 
-    let response = {
-        let mut application = application.lock().unwrap();
-        match parsed {
-            FindReviewerRequest::NeedReviewer { coder } => application.need_reviewer(coder),
-            FindReviewerRequest::HaveTimeForReview { reviewer } => application.have_time_for_review(&reviewer),
-            FindReviewerRequest::WillReview { review_id } => application.will_review(review_id),
-            FindReviewerRequest::WontReview { review_id } => application.wont_review(review_id),
-        }
-    };
+    let response = dispatch_request(&mut application.lock().unwrap(), parsed);
 
     Response::with((Status::Ok, serde_json::to_string_pretty(&response).unwrap()))
+}
+
+fn dispatch_request<G: IdGenerator>(application: &mut Application<G>, request: FindReviewerRequest) -> FindReviewerResponse {
+    match request {
+        FindReviewerRequest::NeedReviewer { coder } => application.need_reviewer(coder),
+        FindReviewerRequest::HaveTimeForReview { reviewer } => application.have_time_for_review(&reviewer),
+        FindReviewerRequest::WillReview { review_id } => application.will_review(review_id),
+        FindReviewerRequest::WontReview { review_id } => application.wont_review(review_id),
+    }
 }
 
 use std::collections::hash_map::DefaultHasher;
@@ -303,37 +304,28 @@ mod test {
         assert_eq!(resp, FindReviewerResponse::AlreadyRegistered {});
     }
 
-    use rand::SeedableRng;
-
     #[test]
     fn respect_wip_limit() {
-        rand::weak_rng().reseed([1, 2, 3, 4]);
-
-        let mut app = create_application();
-
-        let resp = app.need_reviewer("coder1".to_owned());
-        assert_eq!(resp, FindReviewerResponse::Accepted {});
-
-        let resp = app.need_reviewer("coder2".to_owned());
-        assert_eq!(resp, FindReviewerResponse::Accepted {});
-
-        let resp = app.need_reviewer("coder3".to_owned());
-        assert_eq!(resp, FindReviewerResponse::Accepted {});
-
-        let resp = app.need_reviewer("coder4".to_owned());
-        assert_eq!(resp, FindReviewerResponse::Accepted {});
-
-        let resp = app.need_reviewer("coder5".to_owned());
-        assert_eq!(resp, FindReviewerResponse::Accepted {});
-
-        let resp = app.need_reviewer("coder6".to_owned());
-        assert_eq!(
-            resp,
-            FindReviewerResponse::NeedsReviewer {
-                coder: "coder3".to_owned(),
-                review_id: 1,
-            }
+        let mut application = create_application();
+        let coder_set = (0..5).map(|x| format!("coder{}", x) ).collect::<HashSet<_>>(); 
+        let coder_set_cloned = coder_set.clone();
+        for coder in coder_set {
+            let review_request = FindReviewerRequest::NeedReviewer {
+                coder,
+            };
+            assert_eq!(dispatch_request(&mut application, review_request), FindReviewerResponse::Accepted {});
+        }
+        let answer = dispatch_request(
+            &mut application,
+            FindReviewerRequest::NeedReviewer {
+                coder: format!("anothercoder"),
+            },
         );
+        match answer{
+            FindReviewerResponse::NeedsReviewer {coder: coder_name,review_id: _} =>
+                assert!(coder_set_cloned.iter().any(|x| *x==coder_name)),
+            _ => panic!(),
+        }
     }
 
     fn create_application() -> Application<SequenceIdGenerator> {
