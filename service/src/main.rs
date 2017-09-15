@@ -29,8 +29,8 @@ static CONFIG_FILE_NAME: &str = "find-reviewer.json";
 enum FindReviewerRequest {
     NeedReviewer { coder: String },
     HaveTimeForReview { reviewer: String },
-    WillReview { review_id: usize },
-    WontReview { review_id: usize },
+    WillReview { review_id: u32 },
+    WontReview { review_id: u32 },
 }
 
 #[derive(Debug, Eq, PartialEq, Serialize)]
@@ -38,11 +38,11 @@ enum FindReviewerResponse {
     Accepted {},
     NoReviewerNeeded {},
     AlreadyRegistered {},
-    NeedsReviewer { coder: String, review_id: usize },
+    NeedsReviewer { coder: String, review_id: u32 },
     ReviewNotFound {},
 }
 
-type SharedApplication = Arc<Mutex<Application<RandomIdGenerator>>>;
+type SharedApplication = Arc<Mutex<Application>>;
 
 fn main() {
     let configuration = load_configuration();
@@ -105,14 +105,10 @@ fn dispatch_request<G: IdGenerator>(application: &mut Application<G>, request: F
     }
 }
 
-use std::collections::hash_map::DefaultHasher;
-use std::hash::BuildHasherDefault;
-
-struct Application<G> {
+struct Application {
     configuration: ApplicationConfiguration,
-    waiting_coders: HashSet<String, BuildHasherDefault<DefaultHasher>>,
-    active_reviews: HashMap<usize, Review>,
-    id_generator: G,
+    waiting_coders: HashSet<String>,
+    active_reviews: HashMap<u32, Review>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -137,13 +133,12 @@ struct Review {
     pub started: Instant,
 }
 
-impl<G: IdGenerator> Application<G> {
-    fn new(configuration: ApplicationConfiguration) -> Application<G> {
+impl Application {
+    fn new(configuration: ApplicationConfiguration) -> Application {
         Application {
             configuration,
-            waiting_coders: HashSet::default(),
-            active_reviews: HashMap::default(),
-            id_generator: G::new(),
+            waiting_coders: HashSet::new(),
+            active_reviews: HashMap::new(),
         }
     }
 
@@ -190,16 +185,16 @@ impl<G: IdGenerator> Application<G> {
         FindReviewerResponse::NeedsReviewer { coder, review_id }
     }
 
-    fn generate_id(&mut self) -> usize {
+    fn generate_id(&mut self) -> u32 {
         loop {
-            let id = self.id_generator.generate_id();
+            let id = rand::thread_rng().gen();
             if !self.active_reviews.contains_key(&id) {
                 return id;
             }
         }
     }
 
-    fn will_review(&mut self, review_id: usize) -> FindReviewerResponse {
+    fn will_review(&mut self, review_id: u32) -> FindReviewerResponse {
         match self.active_reviews.remove(&review_id) {
             Some(review) => {
                 review
@@ -211,7 +206,7 @@ impl<G: IdGenerator> Application<G> {
         }
     }
 
-    fn wont_review(&mut self, review_id: usize) -> FindReviewerResponse {
+    fn wont_review(&mut self, review_id: u32) -> FindReviewerResponse {
         match self.active_reviews.remove(&review_id) {
             Some(review) => {
                 self.waiting_coders.insert(review.coder);
@@ -225,7 +220,7 @@ impl<G: IdGenerator> Application<G> {
         self.waiting_coders.remove(coder);
     }
 
-    fn insert_review(&mut self, review: Review) -> usize {
+    fn insert_review(&mut self, review: Review) -> u32 {
         let id = self.generate_id();
         self.active_reviews.insert(id, review);
         id
@@ -244,42 +239,9 @@ impl<G: IdGenerator> Application<G> {
     }
 }
 
-trait IdGenerator {
-    fn generate_id(&mut self) -> usize;
-
-    fn new() -> Self;
-}
-
-struct RandomIdGenerator;
-
-impl IdGenerator for RandomIdGenerator {
-    fn generate_id(&mut self) -> usize {
-        rand::thread_rng().gen_range(0, 16383)
-    }
-
-    fn new() -> Self {
-        RandomIdGenerator
-    }
-}
-
 #[cfg(test)]
 mod test {
     use super::*;
-
-    struct SequenceIdGenerator {
-        id: usize,
-    }
-
-    impl IdGenerator for SequenceIdGenerator {
-        fn generate_id(&mut self) -> usize {
-            self.id += 1;
-            self.id
-        }
-
-        fn new() -> Self {
-            SequenceIdGenerator { id: 0 }
-        }
-    }
 
     #[test]
     fn add_coder_no_more_than_once() {
@@ -328,7 +290,7 @@ mod test {
         }
     }
 
-    fn create_application() -> Application<SequenceIdGenerator> {
+    fn create_application() -> Application {
         Application::new(ApplicationConfiguration::default())
     }
 }
