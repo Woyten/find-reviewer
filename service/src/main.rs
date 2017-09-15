@@ -14,6 +14,7 @@ use rand::Rng;
 use staticfile::Static;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::fs::File;
 use std::io::Read;
 use std::path::Path;
 use std::sync::Arc;
@@ -21,6 +22,8 @@ use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
+
+static CONFIG_FILE_NAME: &str = "find-reviewer.json";
 
 #[derive(Debug, Deserialize, Eq, PartialEq)]
 enum FindReviewerRequest {
@@ -42,7 +45,8 @@ enum FindReviewerResponse {
 type SharedApplication = Arc<Mutex<Application<RandomIdGenerator>>>;
 
 fn main() {
-    let application = SharedApplication::new(Mutex::new(Application::new(ApplicationConfiguration::default())));
+    let configuration = load_configuration();
+    let application = SharedApplication::new(Mutex::new(Application::new(configuration)));
 
     let mut mount = Mount::new();
     mount
@@ -58,6 +62,23 @@ fn main() {
     });
 
     Iron::new(mount).http("localhost:3000").unwrap();
+}
+
+fn load_configuration() -> ApplicationConfiguration {
+    let config = File::open(CONFIG_FILE_NAME)
+        .map(|open_file| serde_json::from_reader(open_file).expect(&format!("Could not parse {}", CONFIG_FILE_NAME)))
+        .unwrap_or_else(|err| {
+            println!("Could not read {}: {}\nFile will be created", CONFIG_FILE_NAME, err);
+            ApplicationConfiguration::default()
+        });
+
+    File::create(CONFIG_FILE_NAME)
+        .map(|created_file| {
+            serde_json::to_writer_pretty(created_file, &config).expect(&format!("Could not serialize {}", CONFIG_FILE_NAME))
+        })
+        .unwrap_or_else(|err| println!("Could not write {}: {}", CONFIG_FILE_NAME, err));
+
+    config
 }
 
 fn dispatch_request(request: &mut Request, application: &SharedApplication) -> Response {
@@ -93,9 +114,10 @@ struct Application<G> {
     id_generator: G,
 }
 
+#[derive(Serialize, Deserialize)]
 struct ApplicationConfiguration {
-    pub timeout: Duration,
-    pub wip_limit: usize,
+    timeout: Duration,
+    wip_limit: usize,
 }
 
 impl Default for ApplicationConfiguration {
