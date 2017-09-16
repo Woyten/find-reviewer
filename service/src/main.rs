@@ -269,28 +269,30 @@ mod test {
     #[test]
     fn respect_wip_limit() {
         let mut application = create_application();
-        let coder_set = (0..5).map(|x| format!("coder{}", x) ).collect::<HashSet<_>>(); 
-        let coder_set_cloned = coder_set.clone();
-        for coder in coder_set {
-            let review_request = FindReviewerRequest::NeedReviewer {
-                coder,
-            };
-            assert_eq!(dispatch_request(&mut application, review_request), FindReviewerResponse::Accepted {});
+        let coders = (0..5)
+            .map(|x| format!("coder{}", x))
+            .collect::<HashSet<_>>();
+        for coder in &coders {
+            let request = create_need_reviewer_request(coder);
+            assert_eq!(dispatch_request(&mut application, request), FindReviewerResponse::Accepted {});
         }
-        let answer = dispatch_request(
-            &mut application,
-            FindReviewerRequest::NeedReviewer {
-                coder: format!("anothercoder"),
-            },
-        );
-        match answer{
-            FindReviewerResponse::NeedsReviewer {coder: coder_name,review_id: _} =>
-                assert!(coder_set_cloned.iter().any(|x| *x==coder_name)),
+        let answer = dispatch_request(&mut application, create_need_reviewer_request("anothercoder"));
+        match answer {
+            FindReviewerResponse::NeedsReviewer {
+                coder,
+                review_id: _,
+            } => assert!(coders.contains(&coder)),
             _ => panic!(),
         }
     }
 
     fn create_application() -> Application {
         Application::new(ApplicationConfiguration::default())
+    }
+
+    fn create_need_reviewer_request(coder: &str) -> FindReviewerRequest {
+        FindReviewerRequest::NeedReviewer {
+            coder: coder.into(),
+        }
     }
 }
