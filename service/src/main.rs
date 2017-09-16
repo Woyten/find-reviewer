@@ -29,39 +29,45 @@ type SharedApplication = Arc<Mutex<Application>>;
 
 fn main() {
     let configuration = load_configuration();
+    save_configuration(&configuration);
+
     let application = SharedApplication::new(Mutex::new(Application::new(configuration)));
 
-    let mut mount = Mount::new();
-    mount
-        .mount("/find-reviewer", {
-            let application = application.clone();
-            move |request: &mut Request| Ok(process_request(request, &application))
-        })
-        .mount("/", Static::new(Path::new("www")));
-
-    thread::spawn(move || loop {
-        thread::sleep(Duration::from_secs(1));
-        application.lock().unwrap().process_timeouts();
-    });
-
-    Iron::new(mount).http("localhost:3000").unwrap();
+    start_timeout_loop(application.clone());
+    start_service(application);
 }
 
 fn load_configuration() -> ApplicationConfiguration {
-    let config = File::open(CONFIG_FILE_NAME)
+    File::open(CONFIG_FILE_NAME)
         .map(|open_file| serde_json::from_reader(open_file).expect(&format!("Could not parse {}", CONFIG_FILE_NAME)))
         .unwrap_or_else(|err| {
             println!("Could not read {}: {}\nFile will be created", CONFIG_FILE_NAME, err);
             ApplicationConfiguration::default()
-        });
+        })
+}
 
+fn save_configuration(configuration: &ApplicationConfiguration) {
     File::create(CONFIG_FILE_NAME)
         .map(|created_file| {
-            serde_json::to_writer_pretty(created_file, &config).expect(&format!("Could not serialize {}", CONFIG_FILE_NAME))
+            serde_json::to_writer_pretty(created_file, &configuration).expect(&format!("Could not serialize {}", CONFIG_FILE_NAME))
         })
         .unwrap_or_else(|err| println!("Could not write {}: {}", CONFIG_FILE_NAME, err));
+}
 
-    config
+fn start_timeout_loop(application: SharedApplication) {
+    thread::spawn(move || loop {
+        thread::sleep(Duration::from_secs(1));
+        application.lock().unwrap().process_timeouts();
+    });
+}
+
+fn start_service(application: SharedApplication) {
+    let mut mount = Mount::new();
+    mount
+        .mount("/find-reviewer", move |request: &mut Request| Ok(process_request(request, &application)))
+        .mount("/", Static::new(Path::new("www")));
+
+    Iron::new(mount).http("localhost:3000").unwrap();
 }
 
 fn process_request(request: &mut Request, application: &SharedApplication) -> Response {
