@@ -173,23 +173,23 @@ mod test {
     fn add_coder_no_more_than_once() {
         let mut app = create_application();
 
-        let resp = app.need_reviewer("coder1".to_owned());
-        assert_eq!(resp, FindReviewerResponse::Accepted {});
+        let request = create_need_reviewer_request("coder1");
+        assert_eq!(app.dispatch_request(request), FindReviewerResponse::Accepted {});
 
-        let resp = app.need_reviewer("coder1".to_owned());
-        assert_eq!(resp, FindReviewerResponse::AlreadyRegistered {});
+        let request = create_need_reviewer_request("coder1");
+        assert_eq!(app.dispatch_request(request), FindReviewerResponse::AlreadyRegistered {});
 
-        let resp = app.need_reviewer("coder2".to_owned());
-        assert_eq!(resp, FindReviewerResponse::Accepted {});
+        let request = create_need_reviewer_request("coder2");
+        assert_eq!(app.dispatch_request(request), FindReviewerResponse::Accepted {});
 
-        let resp = app.need_reviewer("coder3".to_owned());
-        assert_eq!(resp, FindReviewerResponse::Accepted {});
+        let request = create_need_reviewer_request("coder3");
+        assert_eq!(app.dispatch_request(request), FindReviewerResponse::Accepted {});
 
-        let resp = app.need_reviewer("coder2".to_owned());
-        assert_eq!(resp, FindReviewerResponse::AlreadyRegistered {});
+        let request = create_need_reviewer_request("coder2");
+        assert_eq!(app.dispatch_request(request), FindReviewerResponse::AlreadyRegistered {});
 
-        let resp = app.need_reviewer("coder3".to_owned());
-        assert_eq!(resp, FindReviewerResponse::AlreadyRegistered {});
+        let request = create_need_reviewer_request("coder3");
+        assert_eq!(app.dispatch_request(request), FindReviewerResponse::AlreadyRegistered {});
     }
 
     #[test]
