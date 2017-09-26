@@ -1,15 +1,18 @@
 module Main exposing (main)
 
-import Html exposing (..)
-import Html.Attributes as Attributes
-import Html.Events as Events
+import Element exposing (..)
+import Element.Attributes exposing (..)
+import Element.Events as Events
+import Element.Input as Input
+import Html
 import Http
 import Post
 import Request
 import Response
-import Style
+import Styles
 
 
+main : Program Never Model Msg
 main =
     Html.program { init = init, update = update, subscriptions = (always Sub.none), view = view }
 
@@ -41,6 +44,7 @@ type alias Model =
 -- INIT
 
 
+init : ( Model, Cmd msg )
 init =
     { status = Initial, user = "" } ! []
 
@@ -49,6 +53,7 @@ init =
 -- UPDATE
 
 
+update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
         UserInput userInput ->
@@ -61,6 +66,7 @@ update msg model =
             { model | status = HttpFailure err } ! []
 
 
+handleUserInput : UserInput -> Model -> ( Model, Cmd Msg )
 handleUserInput userInput model =
     case userInput of
         ReviewerInputUpdate userInput ->
@@ -83,60 +89,73 @@ handleUserInput userInput model =
 -- VIEW
 
 
+defaultSpacing : Attribute variation msg
+defaultSpacing =
+    spacing 20.0
+
+
+defaultPadding : Attribute variation msg
+defaultPadding =
+    padding 20.0
+
+
+view : Model -> Html.Html Msg
 view model =
-    div [ Style.mainDiv ] [ div [ Style.loginDiv ] (createDynamicControls model) ]
+    Element.viewport Styles.stylesheet <|
+        el Styles.Main [ center, verticalCenter, defaultPadding ] <|
+            createDynamicControls model
 
 
+createDynamicControls : Model -> Element Styles.Styles variation Msg
 createDynamicControls model =
     case model.status of
         Initial ->
-            defaultControls model "" " "
+            defaultControls model Styles.RegularText " "
 
         HttpSuccess Response.Accepted ->
-            defaultControls model "darkgreen" "Request accepted"
+            defaultControls model Styles.SuccessText "Request accepted"
 
         HttpSuccess Response.AlreadyRegistered ->
-            defaultControls model "mediumblue" "Coder already registered"
+            defaultControls model Styles.InfoText "Coder already registered"
 
         HttpSuccess Response.NoReviewerNeeded ->
-            defaultControls model "mediumblue" "No review open"
+            defaultControls model Styles.InfoText "No review open"
 
         HttpSuccess (Response.NeedsReviewer coder review_id) ->
             askForConfirmation coder review_id
 
         HttpSuccess Response.ReviewNotFound ->
-            defaultControls model "darkred" "Review not found. You probably ran into a timeout."
+            defaultControls model Styles.ErrorText "Review not found. You probably ran into a timeout."
 
         HttpFailure (Http.BadPayload errorMessage _) ->
-            defaultControls model "darkred" ("Invalid HTTP payload / " ++ errorMessage)
+            defaultControls model Styles.ErrorText ("Invalid HTTP payload / " ++ errorMessage)
 
         HttpFailure otherError ->
-            defaultControls model "darkred" (toString otherError)
+            defaultControls model Styles.ErrorText <| toString otherError
 
 
-defaultControls model color message =
-    [ label [ Style.text "black", Attributes.for "text_input" ] [ text "Name:" ]
-    , input [ Style.textField, Attributes.id "text_input", Attributes.value model.user, Events.onInput (UserInput << ReviewerInputUpdate) ] []
-    , div [ Style.buttonBox ]
-        [ button [ Style.button, Events.onClick (UserInput NeedReviewer) ] [ text "I need a reviewer" ]
-        , button [ Style.button, Events.onClick (UserInput HaveTimeForReview) ] [ text "I have time for a review" ]
+defaultControls : Model -> Styles.Styles -> String -> Element Styles.Styles variation Msg
+defaultControls model style message =
+    column Styles.None [ defaultSpacing ] <|
+        [ Input.text Styles.TextBox [ defaultSpacing, defaultPadding ] <|
+            Input.Text (UserInput << ReviewerInputUpdate) model.user (Input.labelAbove <| text "Name:") []
+        , row Styles.None
+            [ spread, defaultSpacing ]
+            [ button Styles.Button [ defaultPadding, Events.onClick <| UserInput NeedReviewer ] <| text "I need a reviewer"
+            , button Styles.Button [ defaultPadding, Events.onClick <| UserInput HaveTimeForReview ] <| text "I have time for a review"
+            ]
+        , el style [] <| text message
         ]
-    , multiline color message
-    ]
 
 
+askForConfirmation : String -> Int -> Element Styles.Styles variation Msg
 askForConfirmation coder review_id =
-    [ div [ Style.text "black" ] [ text "The following person needs a review:" ]
-    , div [ Style.coder ] [ text coder ]
-    , div [ Style.buttonBox ]
-        [ button [ Style.button, Events.onClick (UserInput <| WillReview review_id) ] [ text "I will do it" ]
-        , button [ Style.button, Events.onClick (UserInput <| WontReview review_id) ] [ text "I won't do it" ]
+    column Styles.None [ defaultSpacing ] <|
+        [ el Styles.RegularText [] <| text "The following person needs a review:"
+        , el Styles.Coder [] <| text coder
+        , row Styles.None
+            [ spread, defaultSpacing ]
+            [ button Styles.Button [ defaultPadding, Events.onClick (UserInput <| WillReview review_id) ] (text "I will do it")
+            , button Styles.Button [ defaultPadding, Events.onClick (UserInput <| WontReview review_id) ] (text "I won't do it")
+            ]
         ]
-    ]
-
-
-multiline color string =
-    string
-        |> String.lines
-        |> List.map (text >> List.singleton >> div [])
-        |> div [ Style.text color ]
