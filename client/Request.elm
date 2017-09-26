@@ -10,6 +10,7 @@ type Request
     | WillReview Int
 
 
+encode : Request -> Encode.Value
 encode msg =
     case msg of
         NeedReviewer coder ->

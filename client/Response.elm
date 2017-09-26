@@ -11,6 +11,7 @@ type Response
     | ReviewNotFound
 
 
+decode : Decode.Decoder Response
 decode =
     Decode.oneOf
         [ Decode.field "Accepted" (Decode.succeed Accepted)
@@ -21,6 +22,7 @@ decode =
         ]
 
 
+decodeNeedsReviewer : Decode.Decoder Response
 decodeNeedsReviewer =
     Decode.map2 NeedsReviewer
         (Decode.field "coder" Decode.string)
