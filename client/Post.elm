@@ -12,7 +12,4 @@ sendRequest handleResult request =
 
 post : Request.Request -> Http.Request Response.Response
 post request =
-    Http.post
-        "http://localhost:3000/find-reviewer/"
-        (Http.jsonBody (Request.encode request))
-        Response.decode
+    Http.post "find-reviewer" (Http.jsonBody (Request.encode request)) Response.decode
