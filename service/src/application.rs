@@ -2,7 +2,6 @@ use rand;
 use rand::Rng;
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::time::Duration;
 use std::time::Instant;
 
 #[derive(Debug, Deserialize, Eq, PartialEq)]
@@ -24,14 +23,16 @@ pub enum FindReviewerResponse {
 
 #[derive(Deserialize, Serialize)]
 pub struct ApplicationConfiguration {
-    timeout: Duration,
-    wip_limit: usize,
+    pub address: String,
+    pub timeout_in_s: u64,
+    pub wip_limit: usize,
 }
 
 impl Default for ApplicationConfiguration {
     fn default() -> Self {
         ApplicationConfiguration {
-            timeout: Duration::from_secs(30),
+            address: String::from("localhost:3000"),
+            timeout_in_s: 30,
             wip_limit: 5,
         }
     }
@@ -39,9 +40,9 @@ impl Default for ApplicationConfiguration {
 
 #[derive(Clone)]
 struct Review {
-    pub coder: String,
-    pub enqueued_coder: Option<String>,
-    pub started: Instant,
+    coder: String,
+    enqueued_coder: Option<String>,
+    started: Instant,
 }
 
 pub struct Application {
@@ -156,7 +157,7 @@ impl Application {
         let now = Instant::now();
         let timed_out: Vec<_> = self.active_reviews
             .iter()
-            .filter(|&(_, review)| (now - review.started) > self.configuration.timeout)
+            .filter(|&(_, review)| (now - review.started).as_secs() > self.configuration.timeout_in_s)
             .map(|(&id, _)| id)
             .collect();
         for review_id in timed_out {
