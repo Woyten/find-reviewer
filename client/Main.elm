@@ -14,7 +14,7 @@ import Styles
 
 main : Program Never Model Msg
 main =
-    Html.program { init = init, update = update, subscriptions = (always Sub.none), view = view }
+    Html.program { init = init, update = update, subscriptions = always Sub.none, view = view }
 
 
 type UserInput
@@ -73,16 +73,16 @@ handleUserInput userInput model =
             { model | user = userInput } ! []
 
         NeedReviewer ->
-            model ! [ Post.sendRequest HttpResult (Request.NeedReviewer model.user) ]
+            model ! [ Post.sendRequest HttpResult <| Request.NeedReviewer model.user ]
 
         HaveTimeForReview ->
-            model ! [ Post.sendRequest HttpResult (Request.HaveTimeForReview model.user) ]
+            model ! [ Post.sendRequest HttpResult <| Request.HaveTimeForReview model.user ]
 
         WillReview review_id ->
-            model ! [ Post.sendRequest HttpResult (Request.WillReview review_id) ]
+            model ! [ Post.sendRequest HttpResult <| Request.WillReview review_id ]
 
         WontReview review_id ->
-            model ! [ Post.sendRequest HttpResult (Request.WontReview review_id) ]
+            model ! [ Post.sendRequest HttpResult <| Request.WontReview review_id ]
 
 
 
@@ -108,37 +108,41 @@ view model =
 
 createDynamicControls : Model -> Element Styles.Styles variation Msg
 createDynamicControls model =
-    case model.status of
-        Initial ->
-            defaultControls model Styles.RegularText " "
+    let
+        createDefaultControls =
+            defaultControls model.user
+    in
+        case model.status of
+            Initial ->
+                createDefaultControls Styles.RegularText " "
 
-        HttpSuccess Response.Accepted ->
-            defaultControls model Styles.SuccessText "Request accepted"
+            HttpSuccess Response.Accepted ->
+                createDefaultControls Styles.SuccessText "Request accepted"
 
-        HttpSuccess Response.AlreadyRegistered ->
-            defaultControls model Styles.InfoText "Coder already registered"
+            HttpSuccess Response.AlreadyRegistered ->
+                createDefaultControls Styles.InfoText "Coder already registered"
 
-        HttpSuccess Response.NoReviewerNeeded ->
-            defaultControls model Styles.InfoText "No review open"
+            HttpSuccess Response.NoReviewerNeeded ->
+                createDefaultControls Styles.InfoText "No review open"
 
-        HttpSuccess (Response.NeedsReviewer coder review_id) ->
-            askForConfirmation coder review_id
+            HttpSuccess (Response.NeedsReviewer coder review_id) ->
+                askForConfirmation coder review_id
 
-        HttpSuccess Response.ReviewNotFound ->
-            defaultControls model Styles.ErrorText "Review not found. You probably ran into a timeout."
+            HttpSuccess Response.ReviewNotFound ->
+                createDefaultControls Styles.ErrorText "Review not found. You probably ran into a timeout."
 
-        HttpFailure (Http.BadPayload errorMessage _) ->
-            defaultControls model Styles.ErrorText ("Invalid HTTP payload / " ++ errorMessage)
+            HttpFailure (Http.BadPayload errorMessage _) ->
+                createDefaultControls Styles.ErrorText <| "Invalid HTTP payload / " ++ errorMessage
 
-        HttpFailure otherError ->
-            defaultControls model Styles.ErrorText <| toString otherError
+            HttpFailure otherError ->
+                createDefaultControls Styles.ErrorText <| toString otherError
 
 
-defaultControls : Model -> Styles.Styles -> String -> Element Styles.Styles variation Msg
-defaultControls model style message =
+defaultControls : String -> Styles.Styles -> String -> Element Styles.Styles variation Msg
+defaultControls user style message =
     column Styles.None [ defaultSpacing ] <|
         [ Input.text Styles.TextBox [ defaultSpacing, defaultPadding ] <|
-            Input.Text (UserInput << ReviewerInputUpdate) model.user (Input.labelAbove <| text "Name:") []
+            Input.Text (UserInput << ReviewerInputUpdate) user (Input.labelAbove <| text "Name:") []
         , row Styles.None
             [ spread, defaultSpacing ]
             [ button Styles.Button [ defaultPadding, Events.onClick <| UserInput NeedReviewer ] <| text "I need a reviewer"
@@ -155,7 +159,7 @@ askForConfirmation coder review_id =
         , el Styles.Coder [] <| text coder
         , row Styles.None
             [ spread, defaultSpacing ]
-            [ button Styles.Button [ defaultPadding, Events.onClick (UserInput <| WillReview review_id) ] (text "I will do it")
-            , button Styles.Button [ defaultPadding, Events.onClick (UserInput <| WontReview review_id) ] (text "I won't do it")
+            [ button Styles.Button [ defaultPadding, Events.onClick <| UserInput <| WillReview review_id ] <| text "I will do it"
+            , button Styles.Button [ defaultPadding, Events.onClick <| UserInput <| WontReview review_id ] <| text "I won't do it"
             ]
         ]
