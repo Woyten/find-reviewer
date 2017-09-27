@@ -16,31 +16,27 @@ encode msg =
         NeedReviewer coder ->
             Encode.object
                 [ ( "NeedReviewer"
-                  , Encode.object
-                        [ ( "coder", Encode.string coder ) ]
+                  , Encode.object [ ( "coder", Encode.string coder ) ]
                   )
                 ]
 
         HaveTimeForReview reviewer ->
             Encode.object
                 [ ( "HaveTimeForReview"
-                  , Encode.object
-                        [ ( "reviewer", Encode.string reviewer ) ]
+                  , Encode.object [ ( "reviewer", Encode.string reviewer ) ]
                   )
                 ]
 
         WillReview id ->
             Encode.object
                 [ ( "WillReview"
-                  , Encode.object
-                        [ ( "review_id", Encode.int id ) ]
+                  , Encode.object [ ( "review_id", Encode.int id ) ]
                   )
                 ]
 
         WontReview id ->
             Encode.object
                 [ ( "WontReview"
-                  , Encode.object
-                        [ ( "review_id", Encode.int id ) ]
+                  , Encode.object [ ( "review_id", Encode.int id ) ]
                   )
                 ]

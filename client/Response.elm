@@ -14,11 +14,11 @@ type Response
 decode : Decode.Decoder Response
 decode =
     Decode.oneOf
-        [ Decode.field "Accepted" (Decode.succeed Accepted)
-        , Decode.field "AlreadyRegistered" (Decode.succeed AlreadyRegistered)
-        , Decode.field "NoReviewerNeeded" (Decode.succeed NoReviewerNeeded)
+        [ Decode.field "Accepted" <| Decode.succeed Accepted
+        , Decode.field "AlreadyRegistered" <| Decode.succeed AlreadyRegistered
+        , Decode.field "NoReviewerNeeded" <| Decode.succeed NoReviewerNeeded
         , Decode.field "NeedsReviewer" decodeNeedsReviewer
-        , Decode.field "ReviewNotFound" (Decode.succeed ReviewNotFound)
+        , Decode.field "ReviewNotFound" <| Decode.succeed ReviewNotFound
         ]
 
 
