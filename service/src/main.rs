@@ -31,10 +31,11 @@ fn main() {
     let configuration = load_configuration();
     save_configuration(&configuration);
 
+    let address = configuration.address.clone();
     let application = SharedApplication::new(Mutex::new(Application::new(configuration)));
 
     start_timeout_loop(application.clone());
-    start_service(application);
+    start_service(&address, application);
 }
 
 fn load_configuration() -> ApplicationConfiguration {
@@ -61,13 +62,13 @@ fn start_timeout_loop(application: SharedApplication) {
     });
 }
 
-fn start_service(application: SharedApplication) {
+fn start_service(address: &str, application: SharedApplication) {
     let mut mount = Mount::new();
     mount
         .mount("/find-reviewer", move |request: &mut Request| Ok(process_request(request, &application)))
         .mount("/", Static::new(Path::new("www")));
 
-    Iron::new(mount).http("localhost:3000").unwrap();
+    Iron::new(mount).http(address).unwrap();
 }
 
 fn process_request(request: &mut Request, application: &SharedApplication) -> Response {
