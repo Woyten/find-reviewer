@@ -4,8 +4,10 @@ import Json.Encode as Encode
 
 
 type Request
-    = NeedReviewer String
-    | HaveTimeForReview String
+    = LoadIdentity
+    | SendIdentity String
+    | NeedReviewer
+    | HaveTimeForReview
     | WontReview Int
     | WillReview Int
 
@@ -13,19 +15,24 @@ type Request
 encode : Request -> Encode.Value
 encode msg =
     case msg of
-        NeedReviewer coder ->
+        LoadIdentity ->
             Encode.object
-                [ ( "NeedReviewer"
-                  , Encode.object [ ( "coder", Encode.string coder ) ]
+                [ ( "LoadIdentity", Encode.object [] ) ]
+
+        SendIdentity token ->
+            Encode.object
+                [ ( "SendIdentity"
+                  , Encode.object [ ( "token", Encode.string token ) ]
                   )
                 ]
 
-        HaveTimeForReview reviewer ->
+        NeedReviewer ->
             Encode.object
-                [ ( "HaveTimeForReview"
-                  , Encode.object [ ( "reviewer", Encode.string reviewer ) ]
-                  )
-                ]
+                [ ( "NeedReviewer", Encode.object [] ) ]
+
+        HaveTimeForReview ->
+            Encode.object
+                [ ( "HaveTimeForReview", Encode.object [] ) ]
 
         WillReview id ->
             Encode.object

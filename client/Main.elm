@@ -17,36 +17,32 @@ main =
     Html.program { init = init, update = update, subscriptions = always Sub.none, view = view }
 
 
-type UserInput
-    = ReviewerInputUpdate String
+type alias Model =
+    { status : Response.Response, httpError : Maybe Http.Error, token : String, username : String }
+
+
+type Msg
+    = UserInteraction UserInteraction
+    | HttpResult (Result Http.Error Response.Response)
+
+
+type UserInteraction
+    = TokenInput String
+    | TokenSubmission
     | NeedReviewer
     | HaveTimeForReview
     | WillReview Int
     | WontReview Int
 
 
-type Msg
-    = UserInput UserInput
-    | HttpResult (Result Http.Error Response.Response)
-
-
-type ViewStatus
-    = Initial
-    | HttpSuccess Response.Response
-    | HttpFailure Http.Error
-
-
-type alias Model =
-    { status : ViewStatus, user : String }
-
-
 
 -- INIT
 
 
-init : ( Model, Cmd msg )
+init : ( Model, Cmd Msg )
 init =
-    { status = Initial, user = "" } ! []
+    { status = Response.UnknownIdentity, httpError = Nothing, token = "", username = "" }
+        ! [ Post.findReviewer HttpResult Request.LoadIdentity ]
 
 
 
@@ -56,33 +52,52 @@ init =
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-        UserInput userInput ->
-            handleUserInput userInput model
+        UserInteraction userInteraction ->
+            handleUserInteraction userInteraction model
 
-        HttpResult (Ok status) ->
-            { model | status = HttpSuccess status } ! []
-
-        HttpResult (Err err) ->
-            { model | status = HttpFailure err } ! []
+        HttpResult httpResult ->
+            handleHttpResult httpResult model
 
 
-handleUserInput : UserInput -> Model -> ( Model, Cmd Msg )
-handleUserInput userInput model =
-    case userInput of
-        ReviewerInputUpdate userInput ->
-            { model | user = userInput } ! []
+handleUserInteraction : UserInteraction -> Model -> ( Model, Cmd Msg )
+handleUserInteraction userInteraction model =
+    case userInteraction of
+        TokenInput token ->
+            { model | token = token } ! []
+
+        TokenSubmission ->
+            model ! [ Post.findReviewer HttpResult <| Request.SendIdentity model.token ]
 
         NeedReviewer ->
-            model ! [ Post.sendRequest HttpResult <| Request.NeedReviewer model.user ]
+            model ! [ Post.findReviewer HttpResult <| Request.NeedReviewer ]
 
         HaveTimeForReview ->
-            model ! [ Post.sendRequest HttpResult <| Request.HaveTimeForReview model.user ]
+            model ! [ Post.findReviewer HttpResult <| Request.HaveTimeForReview ]
 
         WillReview review_id ->
-            model ! [ Post.sendRequest HttpResult <| Request.WillReview review_id ]
+            model ! [ Post.findReviewer HttpResult <| Request.WillReview review_id ]
 
         WontReview review_id ->
-            model ! [ Post.sendRequest HttpResult <| Request.WontReview review_id ]
+            model ! [ Post.findReviewer HttpResult <| Request.WontReview review_id ]
+
+
+handleHttpResult : Result Http.Error Response.Response -> Model -> ( Model, Cmd Msg )
+handleHttpResult httpResult model =
+    let
+        getNewUsername okResult =
+            case okResult of
+                Response.KnownIdentity username ->
+                    username
+
+                _ ->
+                    model.username
+    in
+        case httpResult of
+            Ok okResult ->
+                { model | status = okResult, httpError = Nothing, username = getNewUsername okResult } ! []
+
+            Err err ->
+                { model | httpError = Just err } ! []
 
 
 
@@ -101,65 +116,93 @@ defaultPadding =
 
 view : Model -> Html.Html Msg
 view model =
-    Element.viewport Styles.stylesheet <|
-        el Styles.Main [ center, verticalCenter, defaultPadding ] <|
-            createDynamicControls model
+    viewport Styles.stylesheet <|
+        Element.map UserInteraction <|
+            el Styles.Main [ center, verticalCenter, defaultPadding ] <|
+                column Styles.None
+                    [ defaultSpacing ]
+                    [ showDynamicControls model.status model.token model.username
+                    , showHttpError model.httpError
+                    ]
 
 
-createDynamicControls : Model -> Element Styles.Styles variation Msg
-createDynamicControls model =
+showDynamicControls : Response.Response -> String -> String -> Element Styles.Styles variation UserInteraction
+showDynamicControls status token username =
     let
-        createDefaultControls =
-            defaultControls model.user
+        defaultControls =
+            showDefaultControls username
     in
-        case model.status of
-            Initial ->
-                createDefaultControls Styles.RegularText " "
+        case status of
+            Response.KnownIdentity username ->
+                defaultControls Styles.SuccessText "Login successful"
 
-            HttpSuccess Response.Accepted ->
-                createDefaultControls Styles.SuccessText "Request accepted"
+            Response.UnknownIdentity ->
+                askForTokenInput token
 
-            HttpSuccess Response.AlreadyRegistered ->
-                createDefaultControls Styles.InfoText "Coder already registered"
+            Response.Accepted ->
+                defaultControls Styles.SuccessText "Action successful"
 
-            HttpSuccess Response.NoReviewerNeeded ->
-                createDefaultControls Styles.InfoText "No review open"
+            Response.AlreadyRegistered ->
+                defaultControls Styles.InfoText "Coder already registered"
 
-            HttpSuccess (Response.NeedsReviewer coder review_id) ->
+            Response.NoReviewerNeeded ->
+                defaultControls Styles.InfoText "No review open"
+
+            Response.NeedsReviewer coder review_id ->
                 askForConfirmation coder review_id
 
-            HttpSuccess Response.ReviewNotFound ->
-                createDefaultControls Styles.ErrorText "Review not found. You probably ran into a timeout."
-
-            HttpFailure (Http.BadPayload errorMessage _) ->
-                createDefaultControls Styles.ErrorText <| "Invalid HTTP payload / " ++ errorMessage
-
-            HttpFailure otherError ->
-                createDefaultControls Styles.ErrorText <| toString otherError
+            Response.ReviewNotFound ->
+                defaultControls Styles.ErrorText "Review not found. You probably ran into a timeout."
 
 
-defaultControls : String -> Styles.Styles -> String -> Element Styles.Styles variation Msg
-defaultControls user style message =
+askForTokenInput : String -> Element Styles.Styles variation UserInteraction
+askForTokenInput token =
     column Styles.None [ defaultSpacing ] <|
-        [ Input.text Styles.TextBox [ defaultSpacing, defaultPadding ] <|
-            Input.Text (UserInput << ReviewerInputUpdate) user (Input.labelAbove <| text "Name:") []
+        [ el Styles.RegularText [] <|
+            Input.text Styles.TextBox [ defaultSpacing, defaultPadding ] <|
+                Input.Text TokenInput token (Input.labelAbove <| text "Please enter your token") []
+        , button Styles.Button [ defaultPadding, Events.onClick TokenSubmission ] <| text "Login"
+        ]
+
+
+showDefaultControls : String -> Styles.Styles -> String -> Element Styles.Styles variation UserInteraction
+showDefaultControls username style message =
+    column Styles.None [ defaultSpacing ] <|
+        [ el Styles.RegularText [] <| text <| "Logged in as " ++ username
         , row Styles.None
             [ spread, defaultSpacing ]
-            [ button Styles.Button [ defaultPadding, Events.onClick <| UserInput NeedReviewer ] <| text "I need a reviewer"
-            , button Styles.Button [ defaultPadding, Events.onClick <| UserInput HaveTimeForReview ] <| text "I have time for a review"
+            [ button Styles.Button [ defaultPadding, Events.onClick NeedReviewer ] <| text "I need a reviewer"
+            , button Styles.Button [ defaultPadding, Events.onClick HaveTimeForReview ] <| text "I have time for a review"
             ]
         , el style [] <| text message
         ]
 
 
-askForConfirmation : String -> Int -> Element Styles.Styles variation Msg
+askForConfirmation : String -> Int -> Element Styles.Styles variation UserInteraction
 askForConfirmation coder review_id =
     column Styles.None [ defaultSpacing ] <|
         [ el Styles.RegularText [] <| text "The following person needs a review:"
         , el Styles.Coder [] <| text coder
         , row Styles.None
             [ spread, defaultSpacing ]
-            [ button Styles.Button [ defaultPadding, Events.onClick <| UserInput <| WillReview review_id ] <| text "I will do it"
-            , button Styles.Button [ defaultPadding, Events.onClick <| UserInput <| WontReview review_id ] <| text "I won't do it"
+            [ button Styles.Button [ defaultPadding, Events.onClick <| WillReview review_id ] <| text "I will do it"
+            , button Styles.Button [ defaultPadding, Events.onClick <| WontReview review_id ] <| text "I won't do it"
             ]
         ]
+
+
+showHttpError : Maybe Http.Error -> Element Styles.Styles variation msg
+showHttpError maybeError =
+    let
+        getErrorText error =
+            case error of
+                Http.BadStatus { body } ->
+                    "Bad request / " ++ body
+
+                Http.BadPayload errorMessage _ ->
+                    "Bad response / " ++ errorMessage
+
+                otherError ->
+                    toString otherError
+    in
+        el Styles.ErrorText [] <| text (maybeError |> Maybe.map getErrorText |> Maybe.withDefault "")
