@@ -5,9 +5,11 @@ extern crate rand;
 extern crate serde_derive;
 extern crate serde_json;
 extern crate staticfile;
+extern crate time;
 
 use application::Application;
 use application::ApplicationConfiguration;
+use iron::headers::SetCookie;
 use iron::method::Method;
 use iron::prelude::*;
 use iron::status::Status;
@@ -19,7 +21,6 @@ use std::path::Path;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::thread;
-use std::time::Duration;
 
 mod application;
 
@@ -57,7 +58,7 @@ fn save_configuration(configuration: &ApplicationConfiguration) {
 
 fn start_timeout_loop(application: SharedApplication) {
     thread::spawn(move || loop {
-        thread::sleep(Duration::from_secs(1));
+        thread::sleep(std::time::Duration::from_secs(1));
         application.lock().unwrap().process_timeouts();
     });
 }
@@ -83,5 +84,14 @@ fn process_request(request: &mut Request, application: &SharedApplication) -> Re
 
     let response = application.lock().unwrap().dispatch_request(parsed);
 
-    Response::with((Status::Ok, serde_json::to_string_pretty(&response).unwrap()))
+    let mut resp = Response::with((Status::Ok, serde_json::to_string_pretty(&response).unwrap()));
+    let time = time::now() + time::Duration::weeks(4);
+    resp.headers.set(SetCookie(vec![
+        format!("token={}; Path=/find-reviewer; Expires={}", get_token(), time.rfc822()),
+    ]));
+    resp
+}
+
+fn get_token() -> String {
+    "replace_me_12345".into()
 }
