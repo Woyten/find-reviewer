@@ -1,4 +1,3 @@
-extern crate hyper;
 extern crate iron;
 extern crate mount;
 extern crate rand;
@@ -10,7 +9,7 @@ extern crate time;
 
 use application::Application;
 use application::ApplicationConfiguration;
-use hyper::header::Cookie;
+use iron::headers::Cookie;
 use iron::headers::SetCookie;
 use iron::method::Method;
 use iron::prelude::*;
@@ -88,7 +87,7 @@ fn process_request(request: &mut Request, application: &SharedApplication) -> Re
     let response = application.lock().unwrap().dispatch_request(parsed);
 
     match extract_token(request) {
-        Some(value) => println!("Token {}:", value),
+        Some(value) => println!("Token: {}", value),
         None => (),
     };
 
@@ -109,8 +108,8 @@ fn extract_token<'a>(request: &'a Request) -> Option<String> {
         cookies
             .iter()
             .map(|x| x.split('=').collect::<Vec<_>>())
-            .filter_map(|splitted| if let (Some(&"token"), Some(value)) = (splitted.get(0), splitted.get(1)) {
-                Some(String::from(*value))
+            .filter_map(|splitted| if let (Some(&"token"), Some(&value)) = (splitted.get(0), splitted.get(1)) {
+                Some(String::from(value))
             } else {
                 None
             })
