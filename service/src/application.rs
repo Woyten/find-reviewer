@@ -82,8 +82,8 @@ impl Application {
     }
 
     fn is_already_registered(&self, coder: &String) -> bool {
-        self.waiting_coders.contains(coder) ||
-            self.active_reviews
+        self.waiting_coders.contains(coder)
+            || self.active_reviews
                 .values()
                 .any(|review| &review.coder == coder || review.enqueued_coder.as_ref() == Some(coder))
     }

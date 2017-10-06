@@ -1,3 +1,4 @@
+extern crate hyper;
 extern crate iron;
 extern crate mount;
 extern crate rand;
@@ -5,9 +6,12 @@ extern crate rand;
 extern crate serde_derive;
 extern crate serde_json;
 extern crate staticfile;
+extern crate time;
 
 use application::Application;
 use application::ApplicationConfiguration;
+use hyper::header::Cookie;
+use iron::headers::SetCookie;
 use iron::method::Method;
 use iron::prelude::*;
 use iron::status::Status;
@@ -83,5 +87,33 @@ fn process_request(request: &mut Request, application: &SharedApplication) -> Re
 
     let response = application.lock().unwrap().dispatch_request(parsed);
 
-    Response::with((Status::Ok, serde_json::to_string_pretty(&response).unwrap()))
+    match extract_token(request) {
+        Some(value) => println!("Token {}:", value),
+        None => (),
+    };
+
+    let mut resp = Response::with((Status::Ok, serde_json::to_string_pretty(&response).unwrap()));
+    let time = time::now() + time::Duration::weeks(4);
+    resp.headers.set(SetCookie(vec![
+        format!("token={}; Path=/find-reviewer; Expires={}", get_token(), time.rfc822()),
+    ]));
+    resp
+}
+
+fn get_token() -> String {
+    "replace_me_12345".into()
+}
+
+fn extract_token<'a>(request: &'a Request) -> Option<String> {
+    request.headers.get::<Cookie>().and_then(|cookies| {
+        cookies
+            .iter()
+            .map(|x| x.split('=').collect::<Vec<_>>())
+            .filter_map(|splitted| if let (Some(&"token"), Some(value)) = (splitted.get(0), splitted.get(1)) {
+                Some(String::from(*value))
+            } else {
+                None
+            })
+            .next()
+    })
 }
