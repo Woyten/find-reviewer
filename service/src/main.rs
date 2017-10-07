@@ -24,9 +24,33 @@ use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
 
+
 mod application;
+mod authentication;
 
 static CONFIG_FILE_NAME: &str = "find-reviewer.json";
+
+#[derive(Debug, Deserialize, Eq, PartialEq)]
+pub enum ServerRequest {
+    NeedReviewer {},
+    HaveTimeForReview {},
+    WillReview { review_id: u32 },
+    WontReview { review_id: u32 },
+    LoadIdentity {},
+    SendIdentity { token: String },
+}
+
+#[derive(Debug, Eq, PartialEq, Serialize)]
+pub enum ServerResponse {
+    Accepted {},
+    NoReviewerNeeded {},
+    AlreadyRegistered {},
+    NeedsReviewer { coder: String, review_id: u32 },
+    ReviewNotFound {},
+    KnownIdentity { coder: String },
+    UnknownIdendity {},
+}
+
 
 type SharedApplication = Arc<Mutex<Application>>;
 
@@ -115,4 +139,32 @@ fn extract_token<'a>(request: &'a Request) -> Option<String> {
             })
             .next()
     })
+}
+
+fn adapt_application_request(request: ServerRequest, coder: String) -> Option<application::FindReviewerRequest> {
+    match request {
+        ServerRequest::NeedReviewer {} => Some(application::FindReviewerRequest::NeedReviewer { coder }),
+        ServerRequest::HaveTimeForReview {} => Some(application::FindReviewerRequest::HaveTimeForReview { reviewer: coder }),
+        ServerRequest::WillReview { review_id } => Some(application::FindReviewerRequest::WillReview { review_id }),
+        ServerRequest::WontReview { review_id } => Some(application::FindReviewerRequest::WontReview { review_id }),
+        _ => None,
+    }
+}
+
+fn adapt_application_response(response: application::FindReviewerResponse) -> ServerResponse {
+    match response {
+        application::FindReviewerResponse::Accepted {} => ServerResponse::Accepted {},
+        application::FindReviewerResponse::AlreadyRegistered {} => ServerResponse::AlreadyRegistered {},
+        application::FindReviewerResponse::NoReviewerNeeded {} => ServerResponse::NoReviewerNeeded {},
+        application::FindReviewerResponse::ReviewNotFound {} => ServerResponse::ReviewNotFound {},
+        application::FindReviewerResponse::NeedsReviewer { coder, review_id } => ServerResponse::NeedsReviewer { coder, review_id },
+    }
+}
+
+fn adapt_authentication_request(request: ServerRequest, token: String) -> Option<authentication::AuthenticationRequest> {
+    match request {
+        ServerRequest::LoadIdentity {} => Some(authentication::AuthenticationRequest::LoadIdentity {}),
+        ServerRequest::SendIdentity { token } => Some(authentication::AuthenticationRequest::SendIdentity { token }),
+        _ => None,
+    }
 }
