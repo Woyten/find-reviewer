@@ -128,33 +128,46 @@ fn process_request(request: &mut Request, application: &SharedApplication, authe
         Ok(request) => request,
     };
 
-    let token = extract_token(request);
+    let token = extract_token_from_cookie(request);
 
-    let server_response = match &token {
-        &Some(ref token) => match adapt_application_request(&parsed, token.clone()) {
+    let server_response = distribute_request_under_services(&parsed, &token, application, authentication);
+    let mut resp = Response::with((Status::Ok, serde_json::to_string_pretty(&server_response).unwrap()));
+
+    set_token_cookie(&mut resp, parsed, server_response, token);
+    resp
+}
+
+fn distribute_request_under_services(
+    parsed: &ServerRequest,
+    token: &Option<String>,
+    application: &SharedApplication,
+    authentication: &SharedAuthentication,
+) -> ServerResponse {
+    match token {
+        &Some(ref token) => match adapt_application_request(&parsed, token) {
             Some(app_request) => adapt_application_response(application.lock().unwrap().dispatch_request(app_request)),
             None => adapt_authentication_response(
                 authentication
                     .lock()
                     .unwrap()
-                    .process_request(adapt_authentication_request(&parsed, token.clone()).unwrap()),
+                    .process_request(adapt_authentication_request(&parsed, token).unwrap()),
             ),
         },
         &None => ServerResponse::UnknownIdentity {},
-    };
+    }
+}
 
-    let mut resp = Response::with((Status::Ok, serde_json::to_string_pretty(&server_response).unwrap()));
+fn set_token_cookie(resp: &mut Response, parsed: ServerRequest, server_response: ServerResponse, token: Option<String>) {
     let time = time::now() + time::Duration::weeks(4);
-    match get_token(parsed, server_response, token) {
+    match get_most_current_token(parsed, server_response, token) {
         Some(send_token) => resp.headers.set(SetCookie(vec![
             format!("token={}; Path=/find-reviewer; Expires={}", send_token, time.rfc822()),
         ])),
         None => (),
     }
-    resp
 }
 
-fn get_token(request: ServerRequest, response: ServerResponse, token_from_cookie: Option<String>) -> Option<String> {
+fn get_most_current_token(request: ServerRequest, response: ServerResponse, token_from_cookie: Option<String>) -> Option<String> {
     match response {
         ServerResponse::UnknownIdentity {} => None,
         _ => match request {
@@ -167,7 +180,7 @@ fn get_token(request: ServerRequest, response: ServerResponse, token_from_cookie
     }
 }
 
-fn extract_token<'a>(request: &'a Request) -> Option<String> {
+fn extract_token_from_cookie<'a>(request: &'a Request) -> Option<String> {
     request.headers.get::<Cookie>().and_then(|cookies| {
         cookies
             .iter()
@@ -181,12 +194,16 @@ fn extract_token<'a>(request: &'a Request) -> Option<String> {
     })
 }
 
-fn adapt_application_request(request: &ServerRequest, coder: String) -> Option<FindReviewerRequest> {
-    match *request {
-        ServerRequest::NeedReviewer {} => Some(FindReviewerRequest::NeedReviewer { coder }),
-        ServerRequest::HaveTimeForReview {} => Some(FindReviewerRequest::HaveTimeForReview { reviewer: coder }),
-        ServerRequest::WillReview { review_id } => Some(FindReviewerRequest::WillReview { review_id }),
-        ServerRequest::WontReview { review_id } => Some(FindReviewerRequest::WontReview { review_id }),
+fn adapt_application_request(request: &ServerRequest, coder: &String) -> Option<FindReviewerRequest> {
+    match request {
+        &ServerRequest::NeedReviewer {} => Some(FindReviewerRequest::NeedReviewer {
+            coder: coder.clone(),
+        }),
+        &ServerRequest::HaveTimeForReview {} => Some(FindReviewerRequest::HaveTimeForReview {
+            reviewer: coder.clone(),
+        }),
+        &ServerRequest::WillReview { review_id } => Some(FindReviewerRequest::WillReview { review_id }),
+        &ServerRequest::WontReview { review_id } => Some(FindReviewerRequest::WontReview { review_id }),
         _ => None,
     }
 }
@@ -208,9 +225,11 @@ fn adapt_authentication_response(response: AuthenticationResponse) -> ServerResp
     }
 }
 
-fn adapt_authentication_request(request: &ServerRequest, token: String) -> Option<AuthenticationRequest> {
+fn adapt_authentication_request(request: &ServerRequest, token: &String) -> Option<AuthenticationRequest> {
     match request {
-        &ServerRequest::LoadIdentity {} => Some(AuthenticationRequest::LoadIdentity { token }),
+        &ServerRequest::LoadIdentity {} => Some(AuthenticationRequest::LoadIdentity {
+            token: token.clone(),
+        }),
         &ServerRequest::SendIdentity {
             token: ref sent_token,
         } => Some(AuthenticationRequest::SendIdentity {
