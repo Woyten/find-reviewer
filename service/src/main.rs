@@ -9,7 +9,12 @@ extern crate time;
 
 use application::Application;
 use application::ApplicationConfiguration;
+use application::FindReviewerRequest;
+use application::FindReviewerResponse;
 use authentication::Authentication;
+use authentication::AuthenticationRequest;
+use authentication::AuthenticationResponse;
+use authentication::UserDatabase;
 use iron::headers::Cookie;
 use iron::headers::SetCookie;
 use iron::method::Method;
@@ -30,6 +35,7 @@ mod application;
 mod authentication;
 
 static CONFIG_FILE_NAME: &str = "find-reviewer.json";
+static USER_DATABASE_NAME: &str = "find-reviewer-users.json";
 
 #[derive(Debug, Deserialize, Eq, PartialEq)]
 pub enum ServerRequest {
@@ -60,9 +66,11 @@ fn main() {
     let configuration = load_configuration();
     save_configuration(&configuration);
 
+    let user_database = load_user_database();
+
     let address = configuration.address.clone();
     let application = SharedApplication::new(Mutex::new(Application::new(configuration)));
-    let authentication = SharedAuthentication::new(Mutex::new(Authentication::new()));
+    let authentication = SharedAuthentication::new(Mutex::new(Authentication::new(user_database)));
 
     start_timeout_loop(application.clone());
     start_service(&address, application, authentication);
@@ -74,6 +82,15 @@ fn load_configuration() -> ApplicationConfiguration {
         .unwrap_or_else(|err| {
             println!("Could not read {}: {}\nFile will be created", CONFIG_FILE_NAME, err);
             ApplicationConfiguration::default()
+        })
+}
+
+fn load_user_database() -> UserDatabase {
+    File::open(USER_DATABASE_NAME)
+        .map(|open_file| serde_json::from_reader(open_file).expect(&format!("Could not parse {}", USER_DATABASE_NAME)))
+        .unwrap_or_else(|err| {
+            println!("Could not read {}, error: {}", USER_DATABASE_NAME, err);
+            panic!()
         })
 }
 
@@ -113,8 +130,8 @@ fn process_request(request: &mut Request, application: &SharedApplication, authe
 
     let token = extract_token(request);
 
-    let server_response = match token.clone() {
-        Some(token) => match adapt_application_request(&parsed, token.clone()) {
+    let server_response = match &token {
+        &Some(ref token) => match adapt_application_request(&parsed, token.clone()) {
             Some(app_request) => adapt_application_response(application.lock().unwrap().dispatch_request(app_request)),
             None => adapt_authentication_response(
                 authentication
@@ -123,12 +140,12 @@ fn process_request(request: &mut Request, application: &SharedApplication, authe
                     .process_request(adapt_authentication_request(&parsed, token.clone()).unwrap()),
             ),
         },
-        None => ServerResponse::UnknownIdentity {},
+        &None => ServerResponse::UnknownIdentity {},
     };
 
     let mut resp = Response::with((Status::Ok, serde_json::to_string_pretty(&server_response).unwrap()));
     let time = time::now() + time::Duration::weeks(4);
-    match get_token(parsed, server_response, token.clone()) {
+    match get_token(parsed, server_response, token) {
         Some(send_token) => resp.headers.set(SetCookie(vec![
             format!("token={}; Path=/find-reviewer; Expires={}", send_token, time.rfc822()),
         ])),
@@ -143,7 +160,7 @@ fn get_token(request: ServerRequest, response: ServerResponse, token_from_cookie
         _ => match request {
             ServerRequest::SendIdentity { token } => Some(token),
             _ => match token_from_cookie {
-                Some(token) => Some(token),
+                Some(_) => token_from_cookie,
                 None => None,
             },
         },
@@ -164,39 +181,39 @@ fn extract_token<'a>(request: &'a Request) -> Option<String> {
     })
 }
 
-fn adapt_application_request(request: &ServerRequest, coder: String) -> Option<application::FindReviewerRequest> {
+fn adapt_application_request(request: &ServerRequest, coder: String) -> Option<FindReviewerRequest> {
     match *request {
-        ServerRequest::NeedReviewer {} => Some(application::FindReviewerRequest::NeedReviewer { coder }),
-        ServerRequest::HaveTimeForReview {} => Some(application::FindReviewerRequest::HaveTimeForReview { reviewer: coder }),
-        ServerRequest::WillReview { review_id } => Some(application::FindReviewerRequest::WillReview { review_id }),
-        ServerRequest::WontReview { review_id } => Some(application::FindReviewerRequest::WontReview { review_id }),
+        ServerRequest::NeedReviewer {} => Some(FindReviewerRequest::NeedReviewer { coder }),
+        ServerRequest::HaveTimeForReview {} => Some(FindReviewerRequest::HaveTimeForReview { reviewer: coder }),
+        ServerRequest::WillReview { review_id } => Some(FindReviewerRequest::WillReview { review_id }),
+        ServerRequest::WontReview { review_id } => Some(FindReviewerRequest::WontReview { review_id }),
         _ => None,
     }
 }
 
-fn adapt_application_response(response: application::FindReviewerResponse) -> ServerResponse {
+fn adapt_application_response(response: FindReviewerResponse) -> ServerResponse {
     match response {
-        application::FindReviewerResponse::Accepted {} => ServerResponse::Accepted {},
-        application::FindReviewerResponse::AlreadyRegistered {} => ServerResponse::AlreadyRegistered {},
-        application::FindReviewerResponse::NoReviewerNeeded {} => ServerResponse::NoReviewerNeeded {},
-        application::FindReviewerResponse::ReviewNotFound {} => ServerResponse::ReviewNotFound {},
-        application::FindReviewerResponse::NeedsReviewer { coder, review_id } => ServerResponse::NeedsReviewer { coder, review_id },
+        FindReviewerResponse::Accepted {} => ServerResponse::Accepted {},
+        FindReviewerResponse::AlreadyRegistered {} => ServerResponse::AlreadyRegistered {},
+        FindReviewerResponse::NoReviewerNeeded {} => ServerResponse::NoReviewerNeeded {},
+        FindReviewerResponse::ReviewNotFound {} => ServerResponse::ReviewNotFound {},
+        FindReviewerResponse::NeedsReviewer { coder, review_id } => ServerResponse::NeedsReviewer { coder, review_id },
     }
 }
 
-fn adapt_authentication_response(response: authentication::AuthenticationResponse) -> ServerResponse {
+fn adapt_authentication_response(response: AuthenticationResponse) -> ServerResponse {
     match response {
-        authentication::AuthenticationResponse::KnownIdentity { coder } => ServerResponse::KnownIdentity { username: coder },
-        authentication::AuthenticationResponse::UnknownIdentity {} => ServerResponse::UnknownIdentity {},
+        AuthenticationResponse::KnownIdentity { coder } => ServerResponse::KnownIdentity { username: coder },
+        AuthenticationResponse::UnknownIdentity {} => ServerResponse::UnknownIdentity {},
     }
 }
 
-fn adapt_authentication_request(request: &ServerRequest, token: String) -> Option<authentication::AuthenticationRequest> {
+fn adapt_authentication_request(request: &ServerRequest, token: String) -> Option<AuthenticationRequest> {
     match request {
-        &ServerRequest::LoadIdentity {} => Some(authentication::AuthenticationRequest::LoadIdentity { token }),
+        &ServerRequest::LoadIdentity {} => Some(AuthenticationRequest::LoadIdentity { token }),
         &ServerRequest::SendIdentity {
             token: ref sent_token,
-        } => Some(authentication::AuthenticationRequest::SendIdentity {
+        } => Some(AuthenticationRequest::SendIdentity {
             token: sent_token.clone(),
         }),
         _ => None,

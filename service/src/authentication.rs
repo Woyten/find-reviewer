@@ -1,8 +1,12 @@
 use std::collections::HashMap;
 
-#[derive(Deserialize, Serialize)]
 pub struct Authentication {
-    database: HashMap<String, String>,
+    database: UserDatabase,
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct UserDatabase {
+    users: HashMap<String, String>,
 }
 
 pub enum AuthenticationRequest {
@@ -16,22 +20,14 @@ pub enum AuthenticationResponse {
 }
 
 impl Authentication {
-    pub fn new() -> Authentication {
-        let mut auth = Authentication {
-            database: HashMap::new(),
-        };
-        auth.database
-            .insert(String::from("token1"), String::from("coder1"));
-        auth.database
-            .insert(String::from("token2"), String::from("coder2"));
-
-        auth
+    pub fn new(users: UserDatabase) -> Authentication {
+        Authentication { database: users }
     }
 
     pub fn process_request(&mut self, request: AuthenticationRequest) -> AuthenticationResponse {
         match match request {
-            AuthenticationRequest::LoadIdentity { token } => self.database.get(&token),
-            AuthenticationRequest::SendIdentity { token } => self.database.get(&token),
+            AuthenticationRequest::LoadIdentity { ref token } => self.database.users.get(token),
+            AuthenticationRequest::SendIdentity { ref token } => self.database.users.get(token),
         } {
             Some(coder) => AuthenticationResponse::KnownIdentity {
                 coder: coder.clone(),
