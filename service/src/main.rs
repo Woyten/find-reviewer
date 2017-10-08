@@ -9,6 +9,7 @@ extern crate time;
 
 use application::Application;
 use application::ApplicationConfiguration;
+use authentication::Authentication;
 use iron::headers::Cookie;
 use iron::headers::SetCookie;
 use iron::method::Method;
@@ -47,12 +48,13 @@ pub enum ServerResponse {
     AlreadyRegistered {},
     NeedsReviewer { coder: String, review_id: u32 },
     ReviewNotFound {},
-    KnownIdentity { coder: String },
-    UnknownIdendity {},
+    KnownIdentity { username: String },
+    UnknownIdentity {},
 }
 
 
 type SharedApplication = Arc<Mutex<Application>>;
+type SharedAuthentication = Arc<Mutex<Authentication>>;
 
 fn main() {
     let configuration = load_configuration();
@@ -60,9 +62,10 @@ fn main() {
 
     let address = configuration.address.clone();
     let application = SharedApplication::new(Mutex::new(Application::new(configuration)));
+    let authentication = SharedAuthentication::new(Mutex::new(Authentication::new()));
 
     start_timeout_loop(application.clone());
-    start_service(&address, application);
+    start_service(&address, application, authentication);
 }
 
 fn load_configuration() -> ApplicationConfiguration {
@@ -89,16 +92,16 @@ fn start_timeout_loop(application: SharedApplication) {
     });
 }
 
-fn start_service(address: &str, application: SharedApplication) {
+fn start_service(address: &str, application: SharedApplication, authentication: SharedAuthentication) {
     let mut mount = Mount::new();
     mount
-        .mount("/find-reviewer", move |request: &mut Request| Ok(process_request(request, &application)))
+        .mount("/find-reviewer", move |request: &mut Request| Ok(process_request(request, &application, &authentication)))
         .mount("/", Static::new(Path::new("www")));
 
     Iron::new(mount).http(address).unwrap();
 }
 
-fn process_request(request: &mut Request, application: &SharedApplication) -> Response {
+fn process_request(request: &mut Request, application: &SharedApplication, authentication: &SharedAuthentication) -> Response {
     if request.method != Method::Post {
         return Response::with((Status::BadRequest, "Must be a POST request"));
     }
@@ -108,23 +111,43 @@ fn process_request(request: &mut Request, application: &SharedApplication) -> Re
         Ok(request) => request,
     };
 
-    let response = application.lock().unwrap().dispatch_request(parsed);
+    let token = extract_token(request);
 
-    match extract_token(request) {
-        Some(value) => println!("Token: {}", value),
-        None => (),
+    let server_response = match token.clone() {
+        Some(token) => match adapt_application_request(&parsed, token.clone()) {
+            Some(app_request) => adapt_application_response(application.lock().unwrap().dispatch_request(app_request)),
+            None => adapt_authentication_response(
+                authentication
+                    .lock()
+                    .unwrap()
+                    .process_request(adapt_authentication_request(&parsed, token.clone()).unwrap()),
+            ),
+        },
+        None => ServerResponse::UnknownIdentity {},
     };
 
-    let mut resp = Response::with((Status::Ok, serde_json::to_string_pretty(&response).unwrap()));
+    let mut resp = Response::with((Status::Ok, serde_json::to_string_pretty(&server_response).unwrap()));
     let time = time::now() + time::Duration::weeks(4);
-    resp.headers.set(SetCookie(vec![
-        format!("token={}; Path=/find-reviewer; Expires={}", get_token(), time.rfc822()),
-    ]));
+    match get_token(parsed, server_response, token.clone()) {
+        Some(send_token) => resp.headers.set(SetCookie(vec![
+            format!("token={}; Path=/find-reviewer; Expires={}", send_token, time.rfc822()),
+        ])),
+        None => (),
+    }
     resp
 }
 
-fn get_token() -> String {
-    "replace_me_12345".into()
+fn get_token(request: ServerRequest, response: ServerResponse, token_from_cookie: Option<String>) -> Option<String> {
+    match response {
+        ServerResponse::UnknownIdentity {} => None,
+        _ => match request {
+            ServerRequest::SendIdentity { token } => Some(token),
+            _ => match token_from_cookie {
+                Some(token) => Some(token),
+                None => None,
+            },
+        },
+    }
 }
 
 fn extract_token<'a>(request: &'a Request) -> Option<String> {
@@ -141,8 +164,8 @@ fn extract_token<'a>(request: &'a Request) -> Option<String> {
     })
 }
 
-fn adapt_application_request(request: ServerRequest, coder: String) -> Option<application::FindReviewerRequest> {
-    match request {
+fn adapt_application_request(request: &ServerRequest, coder: String) -> Option<application::FindReviewerRequest> {
+    match *request {
         ServerRequest::NeedReviewer {} => Some(application::FindReviewerRequest::NeedReviewer { coder }),
         ServerRequest::HaveTimeForReview {} => Some(application::FindReviewerRequest::HaveTimeForReview { reviewer: coder }),
         ServerRequest::WillReview { review_id } => Some(application::FindReviewerRequest::WillReview { review_id }),
@@ -161,10 +184,21 @@ fn adapt_application_response(response: application::FindReviewerResponse) -> Se
     }
 }
 
-fn adapt_authentication_request(request: ServerRequest, token: String) -> Option<authentication::AuthenticationRequest> {
+fn adapt_authentication_response(response: authentication::AuthenticationResponse) -> ServerResponse {
+    match response {
+        authentication::AuthenticationResponse::KnownIdentity { coder } => ServerResponse::KnownIdentity { username: coder },
+        authentication::AuthenticationResponse::UnknownIdentity {} => ServerResponse::UnknownIdentity {},
+    }
+}
+
+fn adapt_authentication_request(request: &ServerRequest, token: String) -> Option<authentication::AuthenticationRequest> {
     match request {
-        ServerRequest::LoadIdentity {} => Some(authentication::AuthenticationRequest::LoadIdentity {}),
-        ServerRequest::SendIdentity { token } => Some(authentication::AuthenticationRequest::SendIdentity { token }),
+        &ServerRequest::LoadIdentity {} => Some(authentication::AuthenticationRequest::LoadIdentity { token }),
+        &ServerRequest::SendIdentity {
+            token: ref sent_token,
+        } => Some(authentication::AuthenticationRequest::SendIdentity {
+            token: sent_token.clone(),
+        }),
         _ => None,
     }
 }
