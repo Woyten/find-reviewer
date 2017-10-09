@@ -144,16 +144,30 @@ fn distribute_request_under_services(
     authentication: &SharedAuthentication,
 ) -> ServerResponse {
     match token {
-        &Some(ref token) => match adapt_application_request(&parsed, token) {
-            Some(app_request) => adapt_application_response(application.lock().unwrap().dispatch_request(app_request)),
-            None => adapt_authentication_response(
-                authentication
-                    .lock()
-                    .unwrap()
-                    .process_request(adapt_authentication_request(&parsed, token).unwrap()),
-            ),
+        &Some(ref token) => match authentication
+            .lock()
+            .unwrap()
+            .process_request(AuthenticationRequest::LoadIdentity {
+                token: token.clone(),
+            }) {
+            AuthenticationResponse::KnownIdentity { coder } => match adapt_application_request(&parsed, &coder) {
+                Some(app_request) => adapt_application_response(application.lock().unwrap().dispatch_request(app_request)),
+                None => ServerResponse::KnownIdentity { username: coder },
+            },
+            _ => ServerResponse::UnknownIdentity {},
         },
-        &None => ServerResponse::UnknownIdentity {},
+        &None => match parsed {
+            &ServerRequest::SendIdentity { ref token } => match authentication
+                .lock()
+                .unwrap()
+                .process_request(AuthenticationRequest::SendIdentity {
+                    token: token.clone(),
+                }) {
+                AuthenticationResponse::KnownIdentity { coder } => ServerResponse::KnownIdentity { username: coder },
+                AuthenticationResponse::UnknownIdentity {} => ServerResponse::UnknownIdentity {},
+            },
+            _ => ServerResponse::UnknownIdentity {},
+        },
     }
 }
 
@@ -215,26 +229,5 @@ fn adapt_application_response(response: FindReviewerResponse) -> ServerResponse 
         FindReviewerResponse::NoReviewerNeeded {} => ServerResponse::NoReviewerNeeded {},
         FindReviewerResponse::ReviewNotFound {} => ServerResponse::ReviewNotFound {},
         FindReviewerResponse::NeedsReviewer { coder, review_id } => ServerResponse::NeedsReviewer { coder, review_id },
-    }
-}
-
-fn adapt_authentication_response(response: AuthenticationResponse) -> ServerResponse {
-    match response {
-        AuthenticationResponse::KnownIdentity { coder } => ServerResponse::KnownIdentity { username: coder },
-        AuthenticationResponse::UnknownIdentity {} => ServerResponse::UnknownIdentity {},
-    }
-}
-
-fn adapt_authentication_request(request: &ServerRequest, token: &String) -> Option<AuthenticationRequest> {
-    match request {
-        &ServerRequest::LoadIdentity {} => Some(AuthenticationRequest::LoadIdentity {
-            token: token.clone(),
-        }),
-        &ServerRequest::SendIdentity {
-            token: ref sent_token,
-        } => Some(AuthenticationRequest::SendIdentity {
-            token: sent_token.clone(),
-        }),
-        _ => None,
     }
 }
