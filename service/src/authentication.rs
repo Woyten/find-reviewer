@@ -9,11 +9,6 @@ pub struct UserDatabase {
     users: HashMap<String, String>,
 }
 
-pub enum AuthenticationRequest {
-    LoadIdentity { token: String },
-    SendIdentity { token: String },
-}
-
 pub enum AuthenticationResponse {
     KnownIdentity { coder: String },
     UnknownIdentity {},
@@ -24,11 +19,9 @@ impl Authentication {
         Authentication { database: users }
     }
 
-    pub fn process_request(&mut self, request: AuthenticationRequest) -> AuthenticationResponse {
-        match match request {
-            AuthenticationRequest::LoadIdentity { ref token } => self.database.users.get(token),
-            AuthenticationRequest::SendIdentity { ref token } => self.database.users.get(token),
-        } {
+    pub fn process_request(&mut self, token: &String) -> AuthenticationResponse {
+        match self.database.users.get(token)
+        {
             Some(coder) => AuthenticationResponse::KnownIdentity {
                 coder: coder.clone(),
             },

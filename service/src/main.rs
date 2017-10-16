@@ -12,7 +12,6 @@ use application::ApplicationConfiguration;
 use application::FindReviewerRequest;
 use application::FindReviewerResponse;
 use authentication::Authentication;
-use authentication::AuthenticationRequest;
 use authentication::AuthenticationResponse;
 use authentication::UserDatabase;
 use iron::headers::Cookie;
@@ -147,9 +146,7 @@ fn distribute_request_under_services(
         &Some(ref token) => match authentication
             .lock()
             .unwrap()
-            .process_request(AuthenticationRequest::LoadIdentity {
-                token: token.clone(),
-            }) {
+            .process_request(token) {
             AuthenticationResponse::KnownIdentity { coder } => match adapt_application_request(&parsed, &coder) {
                 Some(app_request) => adapt_application_response(application.lock().unwrap().dispatch_request(app_request)),
                 None => ServerResponse::KnownIdentity { username: coder },
@@ -160,9 +157,7 @@ fn distribute_request_under_services(
             &ServerRequest::SendIdentity { ref token } => match authentication
                 .lock()
                 .unwrap()
-                .process_request(AuthenticationRequest::SendIdentity {
-                    token: token.clone(),
-                }) {
+                .process_request(token) {
                 AuthenticationResponse::KnownIdentity { coder } => ServerResponse::KnownIdentity { username: coder },
                 AuthenticationResponse::UnknownIdentity {} => ServerResponse::UnknownIdentity {},
             },
