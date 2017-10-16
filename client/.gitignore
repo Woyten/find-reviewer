@@ -1,3 +1,5 @@
 elm-stuff/
 node_modules/
-index.html
+build/
+Main.js
+.gradle/
