@@ -82,10 +82,10 @@ impl Application {
     }
 
     fn is_already_registered(&self, coder: &String) -> bool {
-        self.waiting_coders.contains(coder)
-            || self.active_reviews
-                .values()
-                .any(|review| &review.coder == coder || review.enqueued_coder.as_ref() == Some(coder))
+        self.waiting_coders.contains(coder) ||
+            self.active_reviews.values().any(|review| {
+                &review.coder == coder || review.enqueued_coder.as_ref() == Some(coder)
+            })
     }
 
     fn have_time_for_review(&mut self, incoming_reviewer: &String) -> FindReviewerResponse {
@@ -124,9 +124,9 @@ impl Application {
     fn will_review(&mut self, review_id: u32) -> FindReviewerResponse {
         match self.active_reviews.remove(&review_id) {
             Some(review) => {
-                review
-                    .enqueued_coder
-                    .map(|coder| self.waiting_coders.insert(coder));
+                review.enqueued_coder.map(|coder| {
+                    self.waiting_coders.insert(coder)
+                });
                 FindReviewerResponse::Accepted {}
             }
             None => FindReviewerResponse::ReviewNotFound {},
@@ -218,8 +218,6 @@ mod test {
     }
 
     fn create_need_reviewer_request(coder: &str) -> FindReviewerRequest {
-        FindReviewerRequest::NeedReviewer {
-            coder: coder.into(),
-        }
+        FindReviewerRequest::NeedReviewer { coder: coder.into() }
     }
 }
