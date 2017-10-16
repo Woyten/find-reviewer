@@ -1,7 +1,7 @@
 plugins {
   id "org.mohme.gradle.elm-plugin" version "0.2.1"
 }
-task build(type: GradleBuild){
+task build(type: GradleBuild)<<{
   tasks=['elmMake']
 }
 
@@ -11,7 +11,7 @@ elmMake {
   buildDir='.'
 }
 
-task test(type: GradleBuild){
+task test<<{
   project.exec {
       commandLine 'elm-test', '--report junit'
   }
