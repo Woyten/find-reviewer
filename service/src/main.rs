@@ -9,11 +9,14 @@ extern crate time;
 
 use application::Application;
 use application::ApplicationConfiguration;
+<<<<<<< HEAD
 use application::FindReviewerRequest;
 use application::FindReviewerResponse;
 use authentication::Authentication;
 use authentication::UserDatabase;
 use iron::headers::Cookie;
+=======
+>>>>>>> gradle-support
 use iron::headers::SetCookie;
 use iron::method::Method;
 use iron::prelude::*;
@@ -26,7 +29,6 @@ use std::path::Path;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::thread;
-use std::time::Duration;
 
 
 mod application;
@@ -115,7 +117,7 @@ fn save_configuration(configuration: &ApplicationConfiguration) {
 
 fn start_timeout_loop(application: SharedApplication) {
     thread::spawn(move || loop {
-        thread::sleep(Duration::from_secs(1));
+        thread::sleep(std::time::Duration::from_secs(1));
         application.lock().unwrap().process_timeouts();
     });
 }
@@ -153,6 +155,7 @@ fn process_request(
 
     let token = extract_token_from_cookie(request);
 
+<<<<<<< HEAD
     let (server_response, cookie) =
         distribute_request_under_services(&parsed, &token, application, authentication);
     let mut resp = Response::with((
@@ -267,4 +270,16 @@ fn adapt_application_response(response: FindReviewerResponse) -> ServerResponse 
             ServerResponse::NeedsReviewer { coder, review_id }
         }
     }
+=======
+    let mut resp = Response::with((Status::Ok, serde_json::to_string_pretty(&response).unwrap()));
+    let time = time::now() + time::Duration::weeks(4);
+    resp.headers.set(SetCookie(vec![
+        format!("token={}; Path=/find-reviewer; Expires={}", get_token(), time.rfc822()),
+    ]));
+    resp
+}
+
+fn get_token() -> String {
+    "replace_me_12345".into()
+>>>>>>> gradle-support
 }
