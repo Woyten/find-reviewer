@@ -64,6 +64,7 @@ fn main() {
     save_configuration(&configuration);
 
     let user_database = load_user_database();
+    save_user_database(&user_database);
 
     let address = configuration.address.clone();
     let application = SharedApplication::new(Mutex::new(Application::new(configuration)));
@@ -81,7 +82,7 @@ fn load_configuration() -> ApplicationConfiguration {
         })
         .unwrap_or_else(|err| {
             println!(
-                "Could not read {}: {}\nFile will be created",
+                "Could not read {}: {}\nFile will be created.",
                 CONFIG_FILE_NAME,
                 err
             );
@@ -96,8 +97,12 @@ fn load_user_database() -> UserDatabase {
                 .expect(&format!("Could not parse {}", USER_DATABASE_NAME))
         })
         .unwrap_or_else(|err| {
-            println!("Could not read {}, error: {}", USER_DATABASE_NAME, err);
-            panic!()
+            println!(
+                "Could not read {}: {}\nFile will be created.",
+                USER_DATABASE_NAME,
+                err
+            );
+            UserDatabase::default()
         })
 }
 
@@ -109,6 +114,17 @@ fn save_configuration(configuration: &ApplicationConfiguration) {
         })
         .unwrap_or_else(|err| {
             println!("Could not write {}: {}", CONFIG_FILE_NAME, err)
+        });
+}
+
+fn save_user_database(user_database: &UserDatabase) {
+    File::create(USER_DATABASE_NAME)
+        .map(|created_file| {
+            serde_json::to_writer_pretty(created_file, &user_database)
+                .expect(&format!("Could not serialize {}", USER_DATABASE_NAME))
+        })
+        .unwrap_or_else(|err| {
+            println!("Could not write {}: {}", USER_DATABASE_NAME, err)
         });
 }
 

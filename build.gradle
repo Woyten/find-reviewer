@@ -7,7 +7,7 @@ task releaseClient(type: Copy, dependsOn: ':client:build'){
 task releaseService(type: Copy, dependsOn: ':service:build'){
   from 'service/target/release', 'service/'
   into 'release/'
-  include 'find-reviewers', 'find-reviewer.json', 'find-reviewer-users.json'
+  include 'find-reviewers'
 }
 
 task release(dependsOn: ['releaseClient', 'releaseService'])
