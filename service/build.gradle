@@ -1,0 +1,11 @@
+task('build', type: GradleBuild)<<{
+    project.exec {
+        commandLine 'cargo', 'build', '--release'
+    }
+}
+
+task('test')<<{
+    project.exec {
+        commandLine 'cargo', 'test'
+    }
+}

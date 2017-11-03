@@ -1,0 +1,13 @@
+task releaseClient(type: Copy, dependsOn: ':client:build'){
+  from 'client'
+  into 'release/www/'
+  include '*.js', '*.html'
+}
+
+task releaseService(type: Copy, dependsOn: ':service:build'){
+  from 'service/target/release', 'service/'
+  into 'release/'
+  include 'find-reviewers'
+}
+
+task release(dependsOn: ['releaseClient', 'releaseService'])
