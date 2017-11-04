@@ -1,5 +1,6 @@
 use rand;
 use rand::Rng;
+use shared::*;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::time::Instant;
@@ -10,15 +11,6 @@ pub enum FindReviewerRequest {
     HaveTimeForReview { reviewer: String },
     WillReview { review_id: u32 },
     WontReview { review_id: u32 },
-}
-
-#[derive(Debug, Eq, PartialEq, Serialize)]
-pub enum FindReviewerResponse {
-    Accepted {},
-    NoReviewerNeeded {},
-    AlreadyRegistered {},
-    NeedsReviewer { coder: String, review_id: u32 },
-    ReviewNotFound {},
 }
 
 #[derive(Deserialize, Serialize)]
@@ -60,35 +52,26 @@ impl Application {
         }
     }
 
-    pub fn dispatch_request(&mut self, request: FindReviewerRequest) -> FindReviewerResponse {
-        match request {
-            FindReviewerRequest::NeedReviewer { coder } => self.need_reviewer(coder),
-            FindReviewerRequest::HaveTimeForReview { reviewer } => self.have_time_for_review(&reviewer),
-            FindReviewerRequest::WillReview { review_id } => self.will_review(review_id),
-            FindReviewerRequest::WontReview { review_id } => self.wont_review(review_id),
-        }
-    }
-
-    fn need_reviewer(&mut self, incoming_coder: String) -> FindReviewerResponse {
+    pub fn need_reviewer(&mut self, incoming_coder: String) -> ServerResponse {
         if self.is_already_registered(&incoming_coder) {
-            FindReviewerResponse::AlreadyRegistered {}
+            ServerResponse::AlreadyRegistered {}
         } else if self.waiting_coders.len() >= self.configuration.wip_limit {
             let random_waiting_coder = self.waiting_coders.iter().next().unwrap().clone();
             self.start_review(random_waiting_coder, Some(incoming_coder))
         } else {
             self.waiting_coders.insert(incoming_coder);
-            FindReviewerResponse::Accepted {}
+            ServerResponse::Accepted {}
         }
     }
 
     fn is_already_registered(&self, coder: &String) -> bool {
-        self.waiting_coders.contains(coder) ||
-            self.active_reviews.values().any(|review| {
-                &review.coder == coder || review.enqueued_coder.as_ref() == Some(coder)
-            })
+        self.waiting_coders.contains(coder)
+            || self.active_reviews
+                .values()
+                .any(|review| &review.coder == coder || review.enqueued_coder.as_ref() == Some(coder))
     }
 
-    fn have_time_for_review(&mut self, incoming_reviewer: &String) -> FindReviewerResponse {
+    pub fn have_time_for_review(&mut self, incoming_reviewer: &String) -> ServerResponse {
         let random_coder_except_incoming_reviewer = self.waiting_coders
             .iter()
             .filter(|&coder| coder != incoming_reviewer)
@@ -96,11 +79,11 @@ impl Application {
             .cloned();
         match random_coder_except_incoming_reviewer {
             Some(coder) => self.start_review(coder, None),
-            None => FindReviewerResponse::NoReviewerNeeded {},
+            None => ServerResponse::NoReviewerNeeded {},
         }
     }
 
-    fn start_review(&mut self, coder: String, enqueued_coder: Option<String>) -> FindReviewerResponse {
+    fn start_review(&mut self, coder: String, enqueued_coder: Option<String>) -> ServerResponse {
         let review = Review {
             coder: coder.clone(),
             enqueued_coder,
@@ -109,7 +92,7 @@ impl Application {
         self.remove_coder(&coder);
         let review_id = self.insert_review(review);
 
-        FindReviewerResponse::NeedsReviewer { coder, review_id }
+        ServerResponse::NeedsReviewer { coder, review_id }
     }
 
     fn generate_id(&mut self) -> u32 {
@@ -121,25 +104,25 @@ impl Application {
         }
     }
 
-    fn will_review(&mut self, review_id: u32) -> FindReviewerResponse {
+    pub fn will_review(&mut self, review_id: u32) -> ServerResponse {
         match self.active_reviews.remove(&review_id) {
             Some(review) => {
-                review.enqueued_coder.map(|coder| {
-                    self.waiting_coders.insert(coder)
-                });
-                FindReviewerResponse::Accepted {}
+                review
+                    .enqueued_coder
+                    .map(|coder| self.waiting_coders.insert(coder));
+                ServerResponse::Accepted {}
             }
-            None => FindReviewerResponse::ReviewNotFound {},
+            None => ServerResponse::ReviewNotFound {},
         }
     }
 
-    fn wont_review(&mut self, review_id: u32) -> FindReviewerResponse {
+    pub fn wont_review(&mut self, review_id: u32) -> ServerResponse {
         match self.active_reviews.remove(&review_id) {
             Some(review) => {
                 self.waiting_coders.insert(review.coder);
-                FindReviewerResponse::Accepted {}
+                ServerResponse::Accepted {}
             }
-            None => FindReviewerResponse::ReviewNotFound {},
+            None => ServerResponse::ReviewNotFound {},
         }
     }
 
@@ -165,7 +148,7 @@ impl Application {
         }
     }
 }
-
+/*
 #[cfg(test)]
 mod test {
     use super::*;
@@ -218,6 +201,9 @@ mod test {
     }
 
     fn create_need_reviewer_request(coder: &str) -> FindReviewerRequest {
-        FindReviewerRequest::NeedReviewer { coder: coder.into() }
+        FindReviewerRequest::NeedReviewer {
+            coder: coder.into(),
+        }
     }
 }
+*/

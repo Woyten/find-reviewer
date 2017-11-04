@@ -25,10 +25,7 @@ impl Authentication {
         Authentication { database: users }
     }
 
-    pub fn process_request(&mut self, token: &String) -> Option<String> {
-        match self.database.users.get(token) {
-            Some(coder) => Some(coder.clone()),
-            _ => None,
-        }
+    pub fn process_request(&self, token: &String) -> Option<&String> {
+        self.database.users.get(token)
     }
 }
